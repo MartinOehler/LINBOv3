@@ -1,0 +1,27 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+   <head>
+      <title>LINBO Login</title>
+   </head>
+   <body>
+      <p>LINBO Login</p>
+      {{ state }}
+      <form method="POST" action="" onsubmit="">
+	<table>
+          <tr>
+            <td><label>Username:</label></td>
+            <td><input name="username" type="text" maxlength="60" autocomplete="off"  value=""></td>
+          </tr>
+          <tr>
+            <td><label>Password:</label></td>
+            <td><input name="password" type="password" maxlength="16" autocomplete="off"  value=""></td>
+          </tr>
+	  <tr>
+	    <td></td>
+	    <td><input name="login" type="submit" value="Login"></td>
+	  </tr>
+        </table>
+      </form>
+   </body>
+</html>

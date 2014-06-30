@@ -1,0 +1,22 @@
+# Debian/Squeeze is the stable base for this installation
+deb http://ftp.de.debian.org/debian stable main contrib non-free
+deb http://security.debian.org stable/updates main contrib non-free
+
+# testing/unstable/experimental contain newer versions, but
+# packages from there are not being installed by default, unless
+# they came from there in the first place.
+deb http://ftp.de.debian.org/debian testing main contrib non-free
+deb http://security.debian.org testing/updates main contrib non-free
+deb http://ftp.de.debian.org/debian unstable main contrib non-free
+deb http://ftp.de.debian.org/debian experimental main contrib non-free
+
+# Debian/volatile contains quickly changing data like spam- and virusfilter databases
+# Does not exist anymore
+# deb http://volatile.debian.org/debian-volatile stable/volatile main contrib non-free 
+deb http://ftp.de.debian.org/debian stable-updates main contrib non-free
+
+# Knoppix repository
+deb http://debian-knoppix.alioth.debian.org ./
+
+# Debian Multimedia, contains non-free software like acrobat reader
+# deb http://www.deb-multimedia.org squeeze main non-free

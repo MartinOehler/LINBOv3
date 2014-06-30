@@ -1,0 +1,25 @@
+#!/bin/bash
+
+knoppix-smbmount || exit "$?"
+
+# Check if we got an SMB mounted directory under /media now.
+
+mp="$(awk '$3 ~ /cifs|nfs/ && $2 ~ /^\/media\//{print $2}' /proc/mounts | tail -1)"
+
+if [ -n "$mp" ]; then
+ # Handle existing /cache
+ if [ -L /cache ]; then
+  asroot ln -snf "$mp" /cache
+ else
+  [ -d /cache ] || asroot mkdir -p /cache
+  asroot mount --bind "$mp" /cache
+ fi
+ # Check writability
+ testfile="/cache/.write_test"
+ [ -e "$testfile" ] && rm -f "$testfile" 2>/dev/null
+ echo > "$testfile" 2>/dev/null
+ local RC="$?"
+ [ -e "$testfile" ] && rm -f "$testfile" 2>/dev/null
+ [ "$RC" = 0 ] || zenity --error --text 'Die /cache-Partition wurde zwar eingebunden,\nist aber nicht schreibbar!!!\n\nFalsche Credentials für SAMBA?' >/dev/null 2>&1
+ return "$RC"
+fi

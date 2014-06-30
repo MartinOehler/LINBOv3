@@ -1,0 +1,17 @@
+#!/bin/bash
+# LINBO.knoppify - change boot files to make target system "Knoppix-like".
+# (C) Klaus Knopper 2013
+# License: GPL V2
+
+. ./Scripts/LINBO.common
+
+check_commands sudo
+
+[ -n "$1" -a -d "$1" ] || { echo "Source directory does not exist." >&2; exit 1; }
+[ -n "$2" -a -d "$2" ] || { echo "Destination directory does not exist." >&2; exit 1; }
+
+for i in $(cd "$1"; find . \( -type f -o -type l \) | sed 's|^\./||g' ); do
+ d="$2/${i%/*}"
+ [ -d "$d" ] || sudo mkdir -p -m 755 "$d"
+ sudo cp -v -a --no-preserve=ownership "$1"/"$i" "$d"/
+done

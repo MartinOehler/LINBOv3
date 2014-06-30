@@ -1,0 +1,50 @@
+{% load dajaxice_templatetags %}
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+   <head>
+      <title>LINBO</title>
+	 <script src="{{ STATIC_URL }}dajaxice.core.js"  type="text/javascript" charset="utf-8"></script> 
+
+      <script src="{{ MEDIA_URL }}js/jquery-1.7.2.js" type="text/javascript" charset="utf-8"></script>
+      <script src="{{ MEDIA_URL }}js/jquery.dajax.core.js" type="text/javascript" charset="utf-8"></script>
+    
+      <!--  <script type="text/javascript" src="{{ STATIC_URL }}js/config.js"></script> -->
+   </head>
+   <body>
+     <table>
+       <tr>
+	 <td>
+	   <table>
+	     <!-- sidebar -->
+	     <tr><td><a href="/linboweb/main/">Overview</a></td></tr>
+	     <tr><td><a href="/linboweb/client/">Client Admin</a></td></tr>
+	     <tr><td><a href="/linboweb/config/">Config Admin</a></td></tr>
+	   </table>
+	 </td>
+	 <td>
+	   <table>
+	     <tr>
+               <td>
+		 <h1 class="boxmain">Configuration</h1>
+		 <p>Please select:</p>
+		 <select name="editorselector" id="editorselector" onchange="Dajaxice.linboweb.linboserver.displayeditor(Dajax.process, {'option':this.value});" size="1">
+		   <option value="">Select...</option>
+		 {% for editorname in editorlist %}
+		   <option value="{{ editorname }}">{{ editorname }}</option>
+		 {% endfor %}
+		 </select>
+		 <form action="" method="post" id="editorform" onSubmit="return check();"> 
+		   <div id="editor" name="editor">
+		     {% include "editor_div.html" %}
+		   </div>      
+		   <input class="formbutton" name="Save" type="submit" value="Save" id="savebutton">              
+               </form>
+               </td>
+	     </tr>
+	   </table>
+	 </td>
+       </tr>
+     </table>
+   </body>
+</html>

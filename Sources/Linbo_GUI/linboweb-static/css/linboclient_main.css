@@ -1,0 +1,3 @@
+#progressbar::-moz-progress-bar {
+  :indeterminate: background-color: #2ba6cb;
+}

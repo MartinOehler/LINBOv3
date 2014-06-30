@@ -1,0 +1,152 @@
+#!/bin/bash
+
+ROOTDIR="$1"
+DEST="$2"
+
+export PATH="`pwd`/Bin:$PATH"
+
+# COMPRESSION_CD="-2"
+COMPRESSION_CD="1"
+COMPRESSION_DVD="-2"
+#COMPRESSION_DVD="-2"
+#COMPRESSION_DVD="5"
+COMPRESSOR=create_compressed_fs
+COMPRESSION_SERVER="knoppix@compressor"
+COMPRESSION_THREADS="8"
+# COMPRESSOR="ssh -q -c arcfour -o Compression=no root@10.0.2.10 ./create_compressed_fs"
+
+MKISOFS=mkisofs
+type -p "$MKISOFS" || MKISOFS=genisoimage
+
+# Compression blocksize (must be multiple of 512)
+# BLOCKSIZE=65536
+BLOCKSIZE=131072
+
+# Use remote compression server "compressor" if present
+# From stdin to give file
+compressto(){
+ local dest="$1"
+# if ssh -q -c blowfish -o Compression=no "$COMPRESSION_SERVER" /bin/true >/dev/null 2>&1; then
+ if false; then
+  ssh -q -c blowfish -o Compression=no "$COMPRESSION_SERVER" $COMPRESSOR -B $BLOCKSIZE -t "$COMPRESSION_THREADS" $COMPRESSMODE -f "LINBO.$$.tmp" - - > "$1"
+ else
+  $COMPRESSOR -B $BLOCKSIZE -t "$COMPRESSION_THREADS" $COMPRESSMODE -f "$1".tmp - "$1"
+ fi
+ return "$?"
+}
+
+# Hide unwanted LOCALEs.
+HIDELOCALE=""
+HIDEMAN=""
+
+LOCALEGEN="$(awk '/^[^#]/{print $1}' ${ROOTDIR}/etc/locale.gen)"
+MYLOCALE="C de en"
+for i in $LOCALEGEN; do
+ short="${i%%_*}"
+ case "$MYLOCALE" in *\ $short\ *) ;; *)
+  MYLOCALE="$MYLOCALE ${i%%_*}"
+ esac
+ case "$MYLOCALE" in *\ $i\ *) ;; *)
+  MYLOCALE="$MYLOCALE ${i}"
+ esac
+done
+
+LOCALEDIR="${ROOTDIR}/usr/share/locale"
+MANPAGEDIR="${ROOTDIR}/usr/share/man"
+for LOCALE in `ls -1 $LOCALEDIR`; do
+ [ -d "$LOCALEDIR/$LOCALE/LC_MESSAGES" ] || continue
+ FOUND=""
+ for l in $MYLOCALE; do
+  case "$LOCALE" in $l*) FOUND="yes" ;; esac
+ done
+ if [ -z "$FOUND" ]; then
+  HIDELOCALE="$HIDELOCALE ${LOCALEDIR##$ROOTDIR}/$LOCALE"
+  [ -d "$MANPAGEDIR/$LOCALE" ] && HIDELOCALE="$HIDELOCALE ${MANPAGEDIR##$ROOTDIR}/$LOCALE"
+ fi
+done
+
+# -U implies: -d, -l, -L, -N, -relaxed-filenames,  -allow-lowercase,
+# -allow-multidot  and  -no-iso-translate
+#	-iso-level 3 -U -cache-inodes -no-bak -pad \
+#	-hide-rr-moved \
+#	-m /var/lib/dpkg/available\* \
+
+LINBO2DIRS=""
+
+# INSTALLER_EXCLUDE='/var/lib/dpkg/info/* /var/lib/apt/* /var/cache/apt/* /usr/share/doc/*  /usr/man/* /usr/share/man/*'
+
+# Caution: There is a bug in genisoimage that changes permissions of
+# empty directories to r-xr-xr-x if they are in the "EXCLUDE" list.
+
+# These are always excluded:
+ALWAYS_EXCLUDE='*~ *.bak /Makefile* /proc/* /sys/*
+/var/run/screen/[^.]* /var/run/screen/.?*
+/tmp/[^.]* /tmp/.?*
+/var/tmp/[^.]* /var/tmp/.?*
+/initrd/* /LINBO.build /media/*/* /media/hd* /mnt/*/* *.dpkg-* /mnt/hd/*
+/mnt/hd* /mnt/cdrom* /etc/ssh/*key*
+/etc/exports /etc/dhcpc/dhcpcd*
+/var/mail/[^.]* /var/mail/.?*
+/var/spool/mail/[^.]* /var/spool/mail/.?*
+/var/spool/mqueue/[^.]* /var/spool/mqueue/.?*
+/etc/driveprm .ssh .bash_history /etc/printcap*
+/var/spool/cups/tmp/[^.]* /var/spool/cups/tmp/.?*
+/etc/cups/certs/[^.]* /etc/cups/certs/.?*
+/etc/cups/*.O /etc/cups/ppd/[^.]* /etc/cups/ppd/.?*
+/etc/gpm.conf /etc/isapnp.*
+/etc/minirc.dfl *-old *.old
+/var/lib/*/*- /var/lib/*/*old
+/var/log/XFree86.*
+/var/log/Xorg.*
+/var/samba/*.pid
+/var/lib/samba/[^.]* /var/lib/samba/.?*
+/var/cache/samba/[^.]* /var/cache/samba/.?*
+/var/apt/cache/archives/lock /var/log/ksymoops*
+/var/spool/exim/db/[^.]* /var/spool/exim/db/.?*
+/etc/*.old *.distrib /etc/*.save
+/etc/ssl/certs/[^.]* /etc/ssl/certs/.?*
+*.preserved .viminfo .*.swp
+lost+found /.?* /root/.?* /etc/.?* /boot/map /boot/boot.0*
+/usr/src/kernel-packages'
+
+rm -f /tmp/mkisofs.exclude
+
+set -f # No wildcard expansion here!!!
+for i in $ALWAYS_EXCLUDE $HIDELOCALE $INSTALLER_EXCLUDE; do
+  case "$i" in /*) echo "${ROOTDIR}$i";; *) echo "$i";; esac
+done >/tmp/mkisofs.exclude
+set +f
+
+# $ALWAYS_EXCLUDE $HIDELOCALE $INSTALLER_EXCLUDE
+
+SORT=""
+
+chown root.root "$ROOTDIR"
+
+SORT=""
+[ -r Data/mkisofs.sort ] && SORT="-sort Data/mkisofs.sort"
+rm -f "$DEST"
+# Create LINBO compressed image
+mkcmd="$MKISOFS -input-charset ISO-8859-15 -R -l -D $SORT \
+ 	-no-split-symlink-components -no-split-symlink-fields \
+ 	-V LINBO_FS \
+ 	-publisher KNOPPER.NET \
+ 	-p knopper.net \
+ 	-hide-rr-moved -cache-inodes -pad \
+ 	-exclude-list /tmp/mkisofs.exclude"
+size="$(du -B 2048 -x -s "$ROOTDIR"/ | awk '{print $1}')"
+echo "Estimated source size: $size blocks ($((size * 2 / 1024))MB)"
+if [ "$((size * 2 / 1024))" -lt 5000 ]; then # CD-Version, needs more excludes
+ find "${ROOTDIR}"/usr/share/doc/ '(' -iname '*changelog*' -o -iname 'NEWS*.gz' -o -iname 'HISTORY*.gz' -o -iname 'HISTORY*.htm' -o -iname 'CHANGES*.gz' -o -iname 'TODO*.gz' -o -iname 'README.build*' -o -iname '*.cache.bz2' -o -iname 'examples' -o -iname 'demos' -o -iname 'test' -o -path '*/html/*' ')' >> /tmp/mkisofs.exclude
+ # find "${ROOTDIR}"/var/lib/apt/lists -type f >> /tmp/mkisofs.exclude # Causes error "Default release not found"
+ # find "${ROOTDIR}"/var/cache/apt -type f -iname \*.bin >> /tmp/mkisofs.exclude # Only saves 1MB after Knoppix.clean
+ export COMPRESSMODE="-L $COMPRESSION_CD"
+else
+ export COMPRESSMODE="-L $COMPRESSION_DVD"
+fi
+
+if [ "$size" -gt 0 ]; then
+ $mkcmd "$ROOTDIR"/ | compressto "$DEST" || exit 1
+ chmod 444 "$DEST"
+ rm -f /tmp/mkisofs.exclude
+fi

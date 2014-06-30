@@ -1,0 +1,405 @@
+#!/bin/bash
+# Restore initial UNCONFIGURED system state, clean all temporary files
+# WARNING: This script will basically destroy your system. It only works
+# for Knoppix because Knoppix' autoconfiguration scripts fix all the missing
+# config files.
+
+#
+# This has to run chroot inside the Knoppix root filesystem!
+#
+[ "`stat --printf '%i' /.`" -gt 2 ] || { echo "$0 must NEVER be run outside of chroot, exiting"'!' ; exit 1; }
+
+umask 022
+
+# remove only "temporary" or saved files in the given directories
+nuke(){
+for i in `find "$@" -name \*.gz -o -name \*.bz2 -o -name \*.0 -o -name \*.0.log -o -name browse.dat -o -name \*.\*pk 2>/dev/null`; do
+rm -f "$i"
+done
+}
+
+# set all files in the given directories to a length of zero
+zero(){
+for i in `find "$@" -type f -size +0 -not -name \*.ini 2>/dev/null`; do
+:> "$i"
+done
+}
+
+rmdir /media/cdrom?* /media/hd?* /media/sd?* /media/ram* /media/sr* /media/miniroot /media/bootfloppy 2>/dev/null
+rm -f /mnt/cdrom?* /mnt/hd?* /mnt/sd?* /mnt/ram* /mnt/sr* /mnt/miniroot /mnt/bootfloppy 2>/dev/null
+rm -f /etc/ifstate /etc/X11/XF86Config /etc/X11/XF86Config-4 /etc/X11/xorg.conf \
+      /etc/XF86Config /etc/XF86Config-4 /etc/xorg.conf /etc/sysconfig/* \
+      /etc/modprobe.d/blacklist-capiutils /etc/modprobe.d/aliases \
+      /etc/samba/*.SID /var/lib/samba/* /var/cache/samba/* /etc/samba/*.tdb \
+      /dev/mouse* /dev/cdrom* /dev/cdwriter* \
+      /home/*/.Xauthority /home/*/.kde/share/config/phonondevicesrc \
+      /var/run/*/* /var/run/* /var/log/ksymoops/* /var/lock/*/* /var/lock/* \
+      /var/state/*/* /var/state/* /var/log/nessus/* /var/lib/nessus/* \
+      /halt /reboot /ash.static /etc/dhcpc/*.info /etc/dhcpc/resolv* \
+      /etc/*passwd- /etc/*shadow- /etc/*group- \
+      /etc/acpi/lid.sh \
+      /var/cache/apt-show-versions/* /usr/lib/menu/knoppix-gen-* \
+      /var/mail/*/* \
+      /var/lib/clamav/*.cvd \
+      /var/lib/dhcp*/*leases* 2>/dev/null
+
+[ -d /var/lib/dhcp3 ] && touch /var/lib/dhcp3/dhcpd.leases
+
+# Remove Changelogs
+rm -f /usr/share/doc/*/[Cc][Hh][Aa][Nn][Gg][Ee][Ll][Oo][Gg]*
+
+# Remove openvas keys
+find /var/lib/openvas/ -iname \*.pem -exec rm -f {} \; 2>/dev/null
+
+mkdir -p /etc/sysconfig/network-scripts /etc/sysconfig/provider
+mkdir -p /etc/dhcpc
+cat >/etc/resolv.conf <<EOT
+# insert nameservers here
+EOT
+chmod 644 /etc/resolv.conf
+mkdir -p /etc/network
+cat >/etc/network/interfaces <<EOT
+# /etc/network/interfaces -- configuration file for ifup(8), ifdown(8)
+
+# The loopback interface
+# automatically added when upgrading
+auto lo
+iface lo inet loopback
+
+EOT
+
+rm -rf /tmp/* /var/tmp/* /var/backups/* /var/tmp/.??* /.??* \
+       /root/.less* /root/.vim* /root/.rpmdb /root/.aptitude /root/.bash_history \
+       /home/*/.bash_history /home/*/.dbus /home/*/.vim* \
+       /var/lib/texmf/ls-R \
+       /var/spool/texmf/ls-R /var/spool/squid/* \
+       /usr/share/applnk/System/Nessus.desktop \
+       /usr/share/app-install/desktop/x11vnc.desktop \
+       /usr/share/applications/x11vnc.desktop \
+       /usr/share/applications/kde4/ksystemlog.desktop \
+       /usr/share/applications/*-jconsole.desktop \
+       /usr/share/applnk/* \
+       /usr/share/xsessions/openbox-*.desktop \
+       /usr/share/applications/openbox*.desktop
+
+# We do NOT want fixed network and cdrom device numbers
+rm -f  /etc/udev/rules.d/*persistent* /lib/udev/rules.d/*generator*
+
+# hdparm udev script calls sync. This is terrible.
+rm -f  /etc/udev/rules.d/*hdparm.rules /lib/udev/rules.d/*hdparm.rules
+
+nuke /var/log /var/cache /var/spool/texmf 
+
+zero /var/local /var/log /var/mail \
+     /var/lib/games /var/cache/man /var/lib/wine \
+     /var/lib/nfs /var/lib/xkb
+
+for i in `find /usr/*/man -name \*.\[0-9ln\]` ; do
+[ -f "$i".gz -o -f "$i".bz2 ] && rm -f "$i"
+done
+
+# delete old dowloaded packages
+apt-get clean
+
+# Strip X Libs/Modules to save space and loading time
+find /usr/X11R6/lib/modules /usr/lib/xorg/modules \( -name \*.so -o -name \*.o \) -exec strip --strip-unneeded {} \; 2>/dev/null
+
+# Recreate empty utmp and wtmp
+:>/var/run/utmp
+:>/var/run/wtmp
+
+# regenerate module dependencies and ld.so.cache
+echo -n "Updating modules.dep..."
+for i in /boot/System.map-*; do
+ [ -r "$i" ] || continue
+ kvers="${i#*-}"
+ [ -n "$kvers" ] || continue
+ depmod -ae -F "$i" "$kvers"
+done
+echo "	Done."
+if type -a mktexlsr >/dev/null 2>&1; then
+ echo -n "Updating texhash..."
+ mktexlsr
+ echo "	Done."
+fi
+echo -n "Updating mandb..."
+# Remove dangling symlinks
+for i in `find /usr/*/man -type l`; do test -f "$i" || rm -vf "$i"; done
+mandb -c >/dev/null 2>&1
+man doesnotexist >/dev/null 2>&1
+echo "	Done."
+
+# Add symlinks for firmware
+if [ -r /lib/firmware/ar9170.fw ]; then
+ [ -r /lib/firmware/ar5008.fw ] || ln -snf ar9170.fw /lib/firmware/ar5008.fw
+ [ -r /lib/firmware/ar5416.fw ] || ln -snf ar9170.fw /lib/firmware/ar5416.fw
+fi
+
+# Fix audacity
+if [ ! -r /usr/lib/libgail.so -a -r /usr/lib/i386-linux-gnu/gtk-2.0/modules/libgail.so ]; then
+ ln -snf /usr/lib/i386-linux-gnu/gtk-2.0/modules/libgail.so /usr/lib/libgail.so
+ echo "Fixed missing libgail link in /usr/lib/libgail.so."
+fi
+
+[ -r /etc/default/acpi-support ] && sed -i -e 's/^LOCK_SCREEN=/# LOCK_SCREEN=/g' /etc/default/acpi-support
+for i in /usr/share/app-install/desktop/stopmotion.desktop /usr/share/applications/stopmotion.desktop /var/lib/menu-xdg/applications/menu-xdg/X-Debian-Applications-Graphics-stopmotion.desktop /usr/share/menu/stopmotion; do
+ [ -r "$i" -a -x /usr/local/bin/startstopmotion ] && sed -i -e 's|^Exec=/usr/bin/stopmotion|Exec=/usr/local/bin/startstopmotion|g;s|command="/usr/bin/stopmotion"|command="/usr/local/bin/startstopmotion"|g' "$i"
+done
+
+for i in /usr/share/app-install/desktop/openshot.desktop /usr/share/applications/openshot.desktop /var/lib/menu-xdg/applications/menu-xdg/X-Debian-Applications-Graphics-openshot.desktop /usr/share/menu/openshot; do
+ [ -r "$i" -a -x /usr/local/bin/startopenshot ] && sed -i -e 's|^Exec=openshot|Exec=/usr/local/bin/startopenshot|g;s|command="openshot"|command="/usr/local/bin/startopenshot"|g' "$i"
+done
+
+# Patch Xsession in order to stay with stdout/stderr instead of flooding .xsession-errors
+sed -i 's|^exec >>"\$ERRFILE" |# .xsession-errors can fill up our ramdisk/overlay, removed. -KK\n# exec >>"$ERRFILE" |g' /etc/X11/Xsession
+
+# Fix/remove "Others" menu in LXDE
+[ -r /etc/xdg/menus/lxde-applications.menu ] && sed -i -e 's/<!-- Other -->/<!-- Other --/g;s/<!-- End Other -->/-- End Other -->/g' /etc/xdg/menus/lxde-applications.menu
+
+# Show some GNOME+XFCE apps also in LXDE
+for i in /usr/share/applications/* /usr/share/app-install/desktop/*; do
+ [ -f "$i" ] || continue
+ sed -i -e 's/OnlyShowIn=GNOME\;XFCE\;$/OnlyShowIn=GNOME\;XFCE\;LXDE\;/g' "$i"
+done
+
+# Shrink image cache in CD version, because space is tight.
+if [ "$(dpkg -l 2>/dev/null | wc -l)" -le 2500 ] && type -a gtk-update-icon-cache >/dev/null 2>&1; then
+ echo "Shrinking caches in CD version..."
+ gtk-update-icon-cache -f -i /usr/share/icons/gnome
+ gtk-update-icon-cache -f -i /usr/share/icons/hicolor
+ echo "Done."
+fi
+
+if type -a updatedb >/dev/null 2>&1; then
+ echo -n "Updating locate-database..."
+ updatedb '--prunepaths=/KNOPPIX.build /mnt /media /tmp /usr/tmp /var/tmp /usr/src /home /proc /sys /dev'
+ echo "	Done."
+fi
+if type -a update-dlocatedb >/dev/null 2>&1; then
+ echo -n "Updating locate-database..."
+ update-dlocatedb
+ echo "	Done."
+fi
+
+# Policykit patches
+for i in /usr/share/polkit-1/actions/*; do
+ [ -r "$i" ] || continue
+ sed -i -e 's|<allow_any>no</allow_any>|<allow_any>yes</allow_any>|g;s|<allow_inactive>no</allow_inactive>|<allow_inactive>yes</allow_inactive>|g;s|<allow_inactive>auth_admin_keep</allow_inactive>|<allow_inactive>yes</allow_inactive>|g;s|<allow_any>auth_admin_keep</allow_any>|<allow_any>yes</allow_any>|g;s|<allow_inactive>auth_admin</allow_inactive>|<allow_inactive>yes</allow_inactive>|g;s|<allow_any>auth_admin</allow_any>|<allow_any>yes</allow_any>|g;' "$i"
+ grep -q '<allow_any>' "$i" || sed -i -e '/<allow_inactive>yes<\/allow_inactive>/i\      <allow_any>yes<\/allow_any>' "$i"
+done
+
+# This is a severe bug in Debians network-manager package.
+chmod -R a+rX /etc/polkit-1/*
+sed -i -e 's/ResultAny=no/ResultAny=yes/g;s/ResultInactive=no/ResultInactive=yes/g;s/ResultActive=no/ResultActive=yes/g' /etc/polkit-1/localauthority/10-vendor.d/org.freedesktop.NetworkManager.*
+
+echo -n "Fixing permissions in /dev/..."
+chown root.root /dev/ttyp* 2>/dev/null
+chmod 666 /dev/ttyp* /dev/sg* /dev/audio* /dev/dsp* /dev/mixer* /dev/sequencer* /dev/ttyS* /dev/ttyUSB* /dev/ttyACM* /dev/rfcomm* /dev/ircomm* 2>/dev/null
+echo "  Done".
+
+echo -n "Fixing permissions in /etc/ppp/..."
+chown root.dip /etc/ppp/*secrets /etc/ppp/ppp_* /etc/ppp/peers/*provider /etc/ppp/peers /etc/ppp /etc/chatscripts /etc/chatscripts/* 2>/dev/null
+chmod g+rwX    /etc/ppp/*secrets /etc/ppp/ppp_* /etc/ppp/peers/*provider /etc/ppp/peers /etc/ppp /etc/chatscripts /etc/chatscripts/*  2>/dev/null
+echo "  Done".
+
+# Remove obsolete/defective modules
+rm -f /lib/modules/*/kernel/drivers/usb/bluetooth.o
+rm -f /lib/modules/*/kernel/drivers/media/video/dpc7146.ko
+# samsung-laptop is known to kill Firmware of some samsung notebooks if in UEFI mode
+# Not anymore since Kernel 3.9
+# rm -f /lib/modules/*/kernel/drivers/platform/*/samsung-laptop.ko
+
+for i in `ls -d1 /usr/share/autostart/* /etc/xdg/autostart/* 2>/dev/null | egrep -v -e '(knetworkmanager|panel|kdesktop|khotkeys|knoppix|krunner|kmix_autostart|plasma-desktop|nepomukserver|restore_kmix_volumes|konqy_preload|kab2kabc|nm-applet|notify-osd|gnome-keyring.*|polkit-gnome.*)\.desktop'`; do
+ rm -vf $i
+done
+
+# Some GTK programs HAVE to run as root. :-/
+
+for i in `egrep -l -r -e '(wireshark|xcdroast|ethereal|software-center|synaptic|time-admin|wpa_gui)' /usr/share/menu/. /usr/share/applications/. /usr/share/applnk/. /var/lib/menu-xdg/applications/menu-xdg/. 2>/dev/null`; do
+   sed -i -E -e '/Exec=sudo/!{s|Exec=|Exec=sudo |g};/command="sudo/!{s|command="|command="sudo |g}' "$i"
+done
+
+# Replace kdesu (needs password) by sudo (doesn't)
+for i in `grep -l -r 'Exec=.*kdesu' /usr/share/applications/. /usr/share/applnk/. /var/lib/menu-xdg/applications/menu-xdg/. 2>/dev/null`; do
+  sed -i -e 's/Exec=.*kdesu /Exec=sudo -H /g' "$i"
+done
+
+# Replace su-to-root (needs password) by sudo (doesn't)
+for i in `grep -l -r 'Exec=.*su-to-root' /usr/share/applications/. /usr/share/applnk/. /var/lib/menu-xdg/applications/menu-xdg/. 2>/dev/null`; do
+  sed -i -e 's/Exec=.*su-to-root.*-c /Exec=sudo -H /g' "$i"
+done
+
+# Fix permissions
+echo -n "Fixing permissions in /usr..."
+chmod u+s,go+rx /bin/ping /usr/bin/nvtv /usr/bin/openvt 2>/dev/null
+chgrp cdrom /usr/bin/growisofs 2>/dev/null ; chmod g+s /usr/bin/growisofs 2>/dev/null
+# Strange thing is, from Kernel 2.6.8, cdrecord must NOT have suid root permissions
+# in order to work.
+chgrp cdrom /usr/bin/cdrecord* /usr/bin/cdrdao /usr/bin/cdparanoia /usr/bin/cdda2wav 2>/dev/null
+chmod u=rwx,go=rxs,o=rx /usr/bin/cdrecord* /usr/bin/cdrdao /usr/bin/cdparanoia /usr/bin/cdda2wav 2>/dev/null
+chown root.disk /dev/hd* 2>/dev/null ; chmod 660 /dev/hd* 2>/dev/null
+for file in /bin/ntfs-3g.real /bin/ntfs-3g; do
+ [ -r "$file" ] || continue
+ chown root.fuse "$file"
+ chmod u+rwxs,g+rxs,u+rx "$file"
+ break
+done
+chmod u+s /sbin/mount.exfat-fuse
+
+if [ -d /var/run/tor ]; then
+ # Strangely, this is required by tors user configuration frontend, though it's "debia-tor" by default.
+ chown knoppix.knoppix /var/run/tor
+ chmod u=rwx,g=,o= /var/run/tor
+fi
+
+# KDE
+chmod 1777 /var/tmp
+# For Dovecot bluetooth Java lib
+for i in `find /usr/lib/i[0-9]* /usr/lib -maxdepth 1 -iname 'libbluetooth.so.[0-9]'`; do
+ [ -r "${i%%.[0-9]}".so ] || ln -snf "$i" "${i%%.[0-9]}"
+done
+echo "Done."
+
+# Big bad binary hack to fix the KDE bogus gtkrc error
+perl -pi -e 's/(gtk-alternative-button-order = 1)/"\0" x length $1/e' /usr/lib/kde3/kcm_colors.so /usr/lib/kde3/kcm_fonts.so /usr/lib/kde3/kcm_style.so 2>/dev/null
+
+
+for i in "alias net-pf-17 af_packet" "alias ide_cs ide-cs" "alias usbcore off" "alias autofs autofs4"; do
+grep -q "$i" /etc/modprobe.d/aliases.conf || echo "$i" >> /etc/modprobe.d/aliases.conf
+done
+
+if [ -f /etc/X11/xkb/symbols/be ]; then
+ grep -q LSGT /etc/X11/xkb/symbols/be 2>/dev/null || perl -pi -e 's/("Belgian";)/$1\n\n    key <LSGT>	{ [ less, greater, backslash, backslash ] };/g' /etc/X11/xkb/symbols/be
+fi
+
+# Create printer PPDs
+if type -a cups-genppd >/dev/null 2>&1; then
+ echo -n "Generating printer ppds..."
+ cups-genppd # gutenprint
+ echo "Done."
+fi
+
+echo "Cleaning up fonts..."
+dpkg-reconfigure fontconfig
+echo "Done."
+
+echo -n "Recreating library cache..."
+ldconfig
+echo "Done."
+# Prelink libraries
+if type prelink >/dev/null 2>&1; then
+ echo -n "Prelinking libraries..."
+ for i in /usr/lib/xulrunner* /usr/lib/icedove; do
+  if [ -d "$i" ]; then
+   [ -n "$libdirs" ] && libdirs="$libdirs:$i" || libdirs="$i"
+  fi
+ done
+ LD_LIBRARY_PATH="$libdirs" prelink -afmR 2>&1 | grep -v Using
+ echo "Done."
+fi
+
+echo -n "Replacing /etc/fstab with default... "
+cat >/etc/fstab <<EOT
+# DEFAULT BASE FSTAB, UNCONFIGURED
+proc       /proc         proc       noauto             0 0
+sysfs      /sys          sysfs      noauto             0 0
+EOT
+echo "Done."
+
+echo "Defining priorities for programs"
+PROGS=( \
+gnome-www-browser "iceweasel" \
+x-www-browser "iceweasel" \
+www-browser "elinks" \
+x-terminal-emulator "lxterminal" \
+x-window-manager "metacity" \
+x-session-manager "lxsession" \
+gnome-text-editor "leafpad" \
+)
+let i=0
+while true; do
+ [ "$i" -ge "${#PROGS[@]}" ] && break
+ name="${PROGS[$((i++))]}"
+ prog="${PROGS[$((i++))]}"
+ if [ -n "$name" -a -L /etc/alternatives/"$name" ]; then
+  progpath="$(type -p $prog 2>/dev/null | head -1)"
+  if [ -x "$progpath" -a "$(readlink -f /etc/alternatives/$name)" != "$progpath" ]; then
+   update-alternatives --set "$name" "$progpath"
+  fi
+ fi
+done
+
+update-java-alternatives --auto
+
+if [ -r /etc/eclipse/java_home ]; then
+ cat >/etc/eclipse/java_home <<EOT
+# This file determines the search order the Eclipse Platform uses to find a
+# compatible JAVA_HOME. This setting may be overridden on a per-user basis by
+# altering the JAVA_HOME setting in ~/.eclipse/eclipserc.
+EOT
+ for i in usr/lib/jvm/java-*; do
+  [ -x "$i"/bin/javac ] && echo "$i"
+ done >>/etc/eclipse/java_home
+fi
+echo "Done."
+
+# Touch /etc/skel config files so that we get our new configs
+find /etc/skel/ -type f -exec touch {} \;
+
+# Patch speech-dispatchers init.d file so that we get a real daemon instead of per-user-session speechd instances
+if [ -r /etc/init.d/speech-dispatcher ] && ! grep -q 'run-daemon' /etc/init.d/speech-dispatcher ; then
+ sed -i 's|\$DAEMON -- --pid-file \$PIDFILE$|\$DAEMON -- --pid-file \$PIDFILE --run-daemon|g' /etc/init.d/speech-dispatcher
+fi
+
+if [ -f /etc/modprobe.d/broadcom-sta-common.conf ]; then
+ sed -i -e 's/^[^#].*$/# &/g' /etc/modprobe.d/broadcom-sta-common.conf
+fi
+
+if [ -r /etc/pulse/client.conf ] && ! grep -q ' *autospawn *= *no' /etc/pulse/client.conf ; then
+ echo -n "Disabling Pulseaudio autospawn... "
+ sed -i -e 's|.*autospawn.*=.*$|\; autospawn = yes\nautospawn = no|g' \
+        -e 's|.*daemon-binary.*=.*$|\; daemon-binary = /usr/bin/pulseaudio\ndaemon-binary = /dev/null/no-daemon|g' /etc/pulse/client.conf
+ echo "Done."
+fi
+
+# Patch for invalid font string for proprietary ica-client configs:
+if [ -d Addons/opt/Citrix ]; then
+ for i in `find Addons/opt/Citrix/ICAClient/nls/ -name Wfcmgr`; do
+  sed -i 's/^-\*-\*-medium-r-\*-\*-\*-120-\*-\*-\*-\*-\*-\*:$/-*-*-medium-r-*-*-*-120-*-*-*-*-*-*\;/g' "$i"
+ done
+fi
+
+# Disable lxlock
+ln -snf /bin/true /usr/bin/lxlock
+
+# Browser data
+rm -f /home/knoppix/.mozilla/firefox/knoppix/places.sqlite
+rm -f '/home/knoppix/.config/chromium/Default/Top Sites'* \
+      '/home/knoppix/.config/chromium/Default/Visited Links'* \
+      '/home/knoppix/.config/chromium/Default/History'*
+
+# sqlite
+if type -p sqlite3 >/dev/null 2>&1; then
+ echo "Vacuuming *.sqlite files..."
+ find /home/knoppix/.mozilla/firefox -iname \*.sqlite -exec sqlite3 {} vacuum \;
+ echo "Done."
+fi
+
+update-icon-caches /usr/share/icons/hicolor
+
+echo -n "Zeroing 'available' Package lists ..."
+# for i in /var/lib/apt/lists/*_{Release,InRelease,Packages,Sources}; do :>$i; touch -t 198103190000.00 $i; done
+for i in /var/lib/apt/lists/lock /var/lib/apt/lists/*_{Packages,Sources}; do :> "$i"; touch -t 198103190000.00 "$i"; done
+rm -f /var/lib/apt/lists/partial/* /var/lib/apt/lists/*_Translation* /var/lib/apt/lists/*.gpg /var/lib/apt/lists/*.IndexDiff
+rm -f /var/cache/apt/*.bin
+apt-get check
+dpkg --clear-avail
+type -a aptitude >/dev/null 2>&1 && aptitude forget-new
+# [ -e /etc/apt/apt.conf.d/10disablepdiffs ] && echo 'Acquire::PDiffs "false";' > /etc/apt/apt.conf.d/10disablepdiffs
+echo "Done."
+
+for i in root knoppix; do
+ chpasswd -e 2>/dev/null <<EOT
+$i:x
+EOT
+done

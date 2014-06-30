@@ -1,0 +1,11 @@
+Source: cloop-utils
+Section: knoppix
+Priority: extra
+Maintainer: Klaus Knopper <knoppix@knopper.net>
+Build-Depends: debhelper (>= 8.0.0)
+Standards-Version: 3.9.3
+
+Package: cloop-utils
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Utilities for creating and exctracting cloop images files

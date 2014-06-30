@@ -1,0 +1,24 @@
+#!/bin/bash
+# LINBO.mkfilesystem - create chroot "Filesystem" directory containing
+# base Debian system with all packages needed for Virtual LINBO.
+# (C) Klaus Knopper 2013
+# License: GPL V2
+
+. ./Scripts/LINBO.common
+
+check_commands sudo chroot debootstrap
+
+if ls -d ./Filesystem/.??* ./Filesystem/* >/dev/null 2>&1; then
+ echo -e "\e[1mLINBO Filesystem directory exists and is not empty.\e0m"
+ if ask "Really remove directory \"Filesystem\" and all of its contents? [y/N] "; then
+  sudo rm -rf ./Filesystem
+  [ -d ./Filesystem ] && echo -e "\e[1mDirectory could not be deleted!\e[0m" || echo -e "\e[1mDeleted.\e[0m"
+ else
+  echo -e "\e[1mCancelled.\e[0m"
+  exit 1
+ fi
+fi
+
+# We use "stable" for our base system, and "unstable" for xorg and virtualbox!
+sudo debootstrap --arch=i386 --variant=minbase stable ./Filesystem http://ftp.de.debian.org/debian
+sudo debootstrap --arch=amd64 --variant=minbase unstable ./Filesystem/64 http://ftp.de.debian.org/debian

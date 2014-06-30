@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=/
+libdir=${prefix}/lib/i386-linux-gnu
+includedir=${prefix}/include
+
+Name: libntfs-3g
+Description: NTFS-3G Read/Write Driver Library
+Version: 2013.1.13AR.3
+Cflags: -I${includedir}
+Libs:  -lpthread -L${libdir} -lntfs-3g

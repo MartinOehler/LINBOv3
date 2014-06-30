@@ -1,0 +1,174 @@
+{% load dajaxice_templatetags %}
+<!DOCTYPE html>
+<!--[if IE 8]> 				 <html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<!--  Author: Martin Oehler <oehler@knopper.net> 2013
+      License: GPL V2 -->
+
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>LINBO</title>  
+    <link rel="stylesheet" href="{{ MEDIA_URL }}css/foundation.css">
+    <link rel="stylesheet" href="{{ MEDIA_URL }}foundation-icons/foundation-icons.css">
+
+    <link rel="styleshxseet" href="{{ MEDIA_URL }}css/linboclient_main.css">
+    <script src="{{ MEDIA_URL }}js/vendor/custom.modernizr.js"></script>
+
+    <!--  {% dajaxice_js_import %} -->
+     <script src="{{ STATIC_URL }}dajaxice.core.js"  type="text/javascript" charset="utf-8"></script>
+    <script src="{{ MEDIA_URL }}js/jquery-1.10.2.min.js" type="text/javascript" charset="utf-8"></script>
+    <script src="{{ MEDIA_URL }}js/jquery.dajax.core.js" type="text/javascript" charset="utf-8"></script>
+    
+    <script type="text/javascript" src="{{ MEDIA_URL }}js/linboclient_main.js"></script>
+  </head>
+  <!-- our icon style -->
+  <style type="text/css">
+    .linbostyle { font-size: 25px; color: #2DAEBF; text-shadow: 0 0 1.5px #fff, 0 0 3px #fff, 0 0 4.5px #fff, 0 0 6px #BDBDBD, 0 0 9px #BDBDBD, 0 0 12px #BDBDBD, 0 0 15px #BDBDBD, 0 0 25px #BDBDBD; }
+    .linbofontstyle { font-size: 8px; color: #2DAEBF;  }
+  </style>
+  <body>
+    <nav class="top-bar">
+      <section class="top-bar-section">
+	<ul class="left">
+	  <li><a id="linbolabel" href='#'>LINBO</a></li>
+	</ul>
+      </section>
+      <section class="top-bar-section">
+	<ul class="right">
+	  <li><a href="#">Username</a></li>
+	  <li class="divider hide-for-small"></li>
+	  <li><input id="username" type="text" for="left-label"></li>
+	  <li class="divider hide-for-small"></li>
+	  <li><a href='#'>Password</a></li>
+	  <li class="divider hide-for-small"></li>
+	  <li><input id="password" type="password" for="left-label"></li>
+	  <li class="divider hide-for-small"></li>
+	  <li><button type="button" id="loginbutton" onclick="login();" class="button small radius right">Login</button></li>
+	</ul>
+      </section>
+    </nav>
+    
+    <div class="row">
+      <div class="small-12 columns">
+	<p></p>
+      </div>
+    </div>
+    <div class="row">
+      <div style="text-align:center;" class="small-12 columns">
+	<div id="progresspanel" class="panel">
+	  <ul class="no-bullet">
+	    <li><p id="progressbarstatusline">linbo_cmd is running...<p></li>
+	    <li><progress id="progressbar" style="width:650px; height=15px;" max="100"><span>0</span>%</progress></li>
+	    <li><button type="button" id="cancelbutton" onclick="cancelprocess();" class="button small radius">Cancel</button></li>
+	  </ul>
+	</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="text-align:center;" class="small-12 columns">
+	<div id="autostartpanel" class="panel">
+	  <ul class="no-bullet">
+	    <li><p id="autostarttext">linbo_cmd is running...<p></li>
+	    <li><progress id="autostartprogressbar" style="width:650px; height=15px;" max="100"><span></span></progress></li>
+	    <li><button type="button" id="autostartcancelbutton" onclick="cancelautostart();" class="button small radius">Cancel</button></li>
+	  </ul>
+	</div>
+      </div>
+    </div>
+
+    <div id="mainpanel" class="row">
+      <div class="small-12 columns">      
+	<div class="section-container auto" data-section>
+	  <section class="active">
+	    <p class="title" id="maindivtitle" data-section-title><a href="#OS" >OS</a></p>
+	    <div class="content" data-section-content>
+	      <div class="content" id="maindiv" name="maindiv" data-section-content>
+		<!-- this gets loaded by our script -->
+	      </div>
+	    </div>
+	  </section>
+	  <section>
+	    <p class="title" id="infodivtitle" data-section-title><a onclick="Dajaxice.linboweb.linboclient.loadinfodiv(Dajax.process);" href="#Info">Info</a></p>
+	    <div id="infosection" name="infosection" class="content" data-section-content>
+	      <div class="content" id="infodiv" name="infodiv" xdata-section-content>
+		<!-- this gets loaded by our script -->
+	      </div>
+	      <div class="content" id="statusdiv" name="statusdiv" xdata-section-content>
+		<!-- this gets loaded by our script -->
+	      </div>
+
+	    </div>
+	  </section>
+	</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="small-12 columns">      
+	<ul class="button-group even radius">
+	  <li><button type="button" onclick="linbocmd('reboot','null');" class="button radius rebootbutton" title="Reboot"><i class="fi-arrow-down linbostyle"><br><p class="linbofontstyle">Reboot</p></i></button></li>
+	  <li><button type="button" onclick="linbocmd('shutdown','null');" class="button radius shutdownbutton" title="Shutdown"><i class="fi-power linbostyle"><br><p class="linbofontstyle">Shutdown</p></i></button></li>
+	  <li><button class="button" name="Toggle" type="" value="Toggle Log" id="toggleLogButton" onclick="$('#logpanel').toggle();" title="Toggle Logpanel"><i class="fi-monitor linbostyle"><br><p class="linbofontstyle">Toggle Log</p></i></button></li>	
+	</ul>
+      </div>   
+    </div>
+
+    <div class="row">
+      <div id="adminbuttons_main" class="small-12 columns">      
+	  <!-- this gets loaded by our script -->
+      </div>   
+    </div>
+
+
+    <div id="logpanel" class="row">
+      <div class="large-12 columns">      
+	<h5>Log</h5>
+	<div class="panel radius" data-height-watch style="height:200px; overflow-y:scroll; overflow-x:auto;" name="log" id="log">
+	</div>
+	<input type="checkbox" id="logpanelcheckbox" checked> Update
+      </div>
+    </div>
+
+    <!-- hide after first page load -->
+    <script type="text/javascript">
+      $('#logpanel').hide()
+    </script>
+
+
+    <script>
+      document.write('<script src=' +
+			      ('__proto__' in {} ? 'js/vendor/zepto' : 'js/vendor/jquery') +
+			      '.js><\/script>')
+      </script>
+
+      <script src="{{ MEDIA_URL }}js/foundation.min.js"></script>
+        
+      <!--	  
+      <script src="{{ MEDIA_URL }}js/foundation.min.js"></script>
+		  <script src="js/foundation/foundation.js"></script>	  
+
+		  <script src="js/foundation/foundation.alerts.js"></script>
+		  <script src="js/foundation/foundation.clearing.js"></script>
+		  <script src="js/foundation/foundation.cookie.js"></script>
+		  <script src="js/foundation/foundation.dropdown.js"></script>
+		  <script src="js/foundation/foundation.forms.js"></script>
+		  <script src="js/foundation/foundation.joyride.js"></script>
+		  <script src="js/foundation/foundation.magellan.js"></script>
+		  <script src="js/foundation/foundation.orbit.js"></script>
+		  <script src="js/foundation/foundation.reveal.js"></script>
+		  <script src="js/foundation/foundation.section.js"></script>
+		  <script src="js/foundation/foundation.tooltips.js"></script>
+		  <script src="js/foundation/foundation.topbar.js"></script>
+		  <script src="js/foundation/foundation.interchange.js"></script>
+		  <script src="js/foundation/foundation.placeholder.js"></script>
+		  <script src="js/foundation/foundation.abide.js"></script>
+		  -->
+      
+      <script>
+	$(document).foundation();
+      </script>
+  </body>
+</html>
+

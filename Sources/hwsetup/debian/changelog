@@ -1,0 +1,300 @@
+hwsetup (1.4-21) unstable; urgency=low
+
+  * Evaluate "NOCOMPOSITE" set by knoppix-autoconfig
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 07 Feb 2012 21:27:00 +0100
+
+hwsetup (1.4-20) unstable; urgency=low
+
+  * No "EnablePageFlip".
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 07 Feb 2012 17:39:12 +0100
+
+hwsetup (1.4-19) unstable; urgency=low
+
+  * Insert NVidia driver ONLY for NVidia cards. (bugfix)
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 07 Feb 2011 23:30:28 +0100
+
+hwsetup (1.4-18) unstable; urgency=low
+
+  * Prefer proprietary nvidia driver if present.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri, 04 Feb 2011 01:45:04 +0100
+
+hwsetup (1.4-17) unstable; urgency=low
+
+  * Add GMA500 (poulsbo) detection
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 09 Jan 2011 04:58:42 +0100
+
+hwsetup (1.4-16) unstable; urgency=low
+
+  * Added CHIPSET_TWEAKS (workarounds), currently for nouveau only.
+  * Removed Tiling=off workaround
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 29 Nov 2010 14:38:10 +0100
+
+hwsetup (1.4-15) unstable; urgency=low
+
+  * Blacklist 10de:0421 (Geforce 8500 GT) -> nv
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 09 Nov 2010 13:57:56 +0100
+
+hwsetup (1.4-14.2) unstable; urgency=low
+
+  * Replace grep by egrep to fix nvidia|fglrx detection
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 08 Mar 2010 03:22:33 +0100
+
+hwsetup (1.4-14.1) unstable; urgency=low
+
+  * Remove "radeonhd" autodetect, gives false positives.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sat, 06 Feb 2010 22:06:16 +0100
+
+hwsetup (1.4-14) unstable; urgency=low
+
+  * Remove keyboard and mice sections completely if autodetection is active.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 31 Jan 2010 05:56:13 +0100
+
+hwsetup (1.4-13) unstable; urgency=low
+
+  * mkxorgconfig: Add Option "AllowEmptyInput" "false" for xorg 7.5
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 31 Jan 2010 00:49:47 +0100
+
+hwsetup (1.4-12) unstable; urgency=low
+
+  * mkxorgconfig: Overwrite /etc/xorg.conf only if not patched for nvidia or
+    fglrx, and it is our own version.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Wed, 13 Jan 2010 14:23:29 +0100
+
+hwsetup (1.4-11) unstable; urgency=low
+
+  * Overwrite /etc/X11/xorg.conf if "Created by KNOPPIX" line is present.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 07 Dec 2009 03:01:01 +0100
+
+hwsetup (1.4-10) unstable; urgency=low
+
+  * Enable font anti-scrambling again. 
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sat, 14 Nov 2009 22:13:29 +0100
+
+hwsetup (1.4-9) unstable; urgency=low
+
+  * Make the "screen=" boot option work again.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 11 Aug 2009 00:22:31 +0200
+
+hwsetup (1.4-8) unstable; urgency=low
+
+  * Add temporary workaround for radeonhd card autodetection
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri, 19 Jun 2009 10:09:05 +0200
+
+hwsetup (1.4-7) unstable; urgency=low
+
+  * Add "intel" driver workarounds for xorg 7.4
+  * Don't use DefaultDepth 16, let Xorg decide instead.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 15 Jun 2009 01:52:34 +0200
+
+hwsetup (1.4-6) unstable; urgency=low
+
+  [ Klaus Knopper ]
+  * Add norandr boot option to disable automatic resolution changes
+  * Add serialmouse[=/dev/device] option for serial mice
+
+ -- Klaus Knopper <knoppix@knopper.net>  Wed, 13 May 2009 15:29:35 +0200
+
+hwsetup (1.4-5) unstable; urgency=low
+
+  * Get "no3d" option working
+  * Add Option "LVDS,AUTO" for Monitor section
+
+ -- Klaus Knopper <knopper@Koffer>  Mon, 16 Mar 2009 16:21:22 +0100
+
+hwsetup (1.4-4) unstable; urgency=low
+
+  * Explicitly DISable Coposite when booting with "no3d".
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 08 Feb 2009 20:26:32 +0100
+
+hwsetup (1.4-3) unstable; urgency=low
+
+  * Bugfix: check configuration file for writability, not variable!
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 25 Jan 2009 20:53:15 +0100
+
+hwsetup (1.4-2) unstable; urgency=low
+
+  * Remove obsolete RGB path.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 19 Jan 2009 02:55:37 +0100
+
+hwsetup (1.4-1) unstable; urgency=low
+
+  * Get rid of hwinfo in favour of reading from /sys.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 04 Nov 2008 22:37:24 +0100
+
+hwsetup (1.3-1) unstable; urgency=low
+
+  * Use "hwinfo"+shellscript instead of C program
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon, 30 Jun 2008 02:48:06 +0200
+
+hwsetup (1.2-7) unstable; urgency=low
+
+  * Added Intel 9x cards
+
+ -- Klaus Knopper <knoppix@knopper.net>  Sun, 12 Nov 2006 23:09:39 +0100
+
+hwsetup (1.2-6) unstable; urgency=low
+
+  * Put more hisax* modules on the blacklist
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 12 Sep 2006 19:51:26 +0200
+
+hwsetup (1.2-5) unstable; urgency=low
+
+  * Added hisax_fcpnpci to blacklist
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon,  4 Sep 2006 05:50:47 +0200
+
+hwsetup (1.2-4) unstable; urgency=low
+
+  * Increased timeout to 3 minutes for slow machines.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Thu, 24 Aug 2006 19:27:23 +0200
+
+hwsetup (1.2-3) unstable; urgency=low
+
+  * Relaxed i810 check
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri,  9 Jun 2006 15:26:38 +0200
+
+hwsetup (1.2-2) unstable; urgency=low
+
+  * Kill rotating prompt on failed scan as well.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Mon,  1 May 2006 17:54:41 +0200
+
+hwsetup (1.2-1) unstable; urgency=low
+
+  * Added check for already loaded modules (and corresponding conflicts with
+    other modules) in order to avoid conflicts with udev (or any other process
+    that loads modules independent from hwsetup)
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri, 17 Feb 2006 20:52:31 +0100
+
+hwsetup (1.1-1) unstable; urgency=low
+
+  * Added check for conflicting sound modules
+
+ -- Knoppix User <knoppix@Knoppix>  Sat,  7 May 2005 15:21:50 +0200
+
+hwsetup (1.0-14) unstable; urgency=low
+
+  * libkudzu 1.1.3 changes
+
+ -- root <root@Knoppix>  Mon,  2 Jun 2003 20:50:18 +0200
+
+hwsetup (1.0-13) unstable; urgency=low
+
+  * Added -s (noscsi) and -a (noaudio)
+
+ -- root <root@Knoppix>  Mon, 14 Apr 2003 21:50:24 +0200
+
+hwsetup (1.0-12) unstable; urgency=low
+
+  * Send stderr of modprobe to /dev/null if not in verbose mode
+
+ -- root <root@Knoppix>  Sat,  8 Feb 2003 19:15:51 +0100
+
+hwsetup (1.0-11) unstable; urgency=low
+
+  * Added blacklist for potentially dangerous modules
+
+ -- root <root@Knoppix>  Wed,  1 Jan 2003 06:53:29 +0100
+
+hwsetup (1.0-10) unstable; urgency=low
+
+  * Workaround for a module bug
+
+ -- root <root@Knoppix>  Wed,  9 Oct 2002 21:34:17 +0200
+
+hwsetup (1.0-9) unstable; urgency=low
+
+  * Don't load modules for type "OTHER" again (hangs on some notebooks. :-( )
+
+ -- root <root@Knoppix>  Wed,  9 Oct 2002 00:09:09 +0200
+
+hwsetup (1.0-8) unstable; urgency=low
+
+  * Added alarm handler to autokill hwsetup after max. 120 seconds
+
+ -- root <root@Knoppix>  Tue,  8 Oct 2002 21:35:22 +0200
+
+hwsetup (1.0-7) unstable; urgency=low
+
+  * Don't load yenta_socket here (Dell inspiron problems)
+
+ -- root <root@Knoppix>  Mon,  7 Oct 2002 23:23:02 +0200
+
+hwsetup (1.0-6) unstable; urgency=low
+
+  * Also call modprobe for modules of CLASS_OTHER devices.
+
+ -- root <root@Knoppix>  Sat,  5 Oct 2002 20:31:09 +0200
+
+hwsetup (1.0-5) unstable; urgency=low
+
+  * Load module(s) for class CAPTURE, RAID, SOCKET
+
+ -- root <root@Knoppix>  Mon, 16 Sep 2002 19:12:35 +0200
+
+hwsetup (1.0-4) unstable; urgency=low
+
+  * cursor correction
+
+ -- root <root@Knoppix>  Mon, 13 May 2002 17:08:14 +0200
+
+hwsetup (1.0-3) unstable; urgency=low
+
+  * Added elaborate use of ansi colors for prompt mode
+
+ -- root <root@Knoppix>  Mon, 13 May 2002 00:36:21 +0200
+
+hwsetup (1.0-2) unstable; urgency=low
+
+  * Added floppy detection
+
+ -- root <root@Knoppix>  Fri, 29 Mar 2002 19:45:13 +0100
+
+hwsetup (1.0-1) unstable; urgency=low
+
+  * Switch to new kudzu 0.99.47
+  * Add rotating prompt for feedback
+
+ -- root <root@Knoppix>  Thu, 21 Mar 2002 16:58:08 +0100
+
+hwsetup (0.9-1) unstable; urgency=low
+
+  * added segfault handler for unstable modules
+
+ -- Klaus Knopper <knopper@knopper.net>  Sun, 21 Oct 2001 20:57:25 +0100
+
+hwsetup (0.8-1) unstable; urgency=low
+
+  * Initial release
+
+ -- Klaus Knopper <knopper@knopper.net>  Mon, 14 May 2001 20:57:25 +0100
+
+Local variables:
+mode: debian-changelog
+End:

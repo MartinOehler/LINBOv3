@@ -1,0 +1,21 @@
+knoppix-smbmount (0.2-1) unstable; urgency=low
+
+  * Use nbtscan instead of nmap for host/share detection
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri, 30 Nov 2012 17:24:07 +0100
+
+knoppix-smbmount (0.1-2) unstable; urgency=low
+
+  * Allow name$ as share, except for print$.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Fri, 23 Nov 2012 02:57:34 +0100
+
+knoppix-smbmount (0.1-1) unstable; urgency=low
+
+  * Initial version.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Wed, 18 Nov 2012 11:54:52 +0200
+
+Local variables:
+mode: debian-changelog
+End:

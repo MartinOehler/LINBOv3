@@ -1,0 +1,45 @@
+#!/bin/bash
+# LINBO chroot to Filesystem
+# (C) Klaus Knopper 2013
+# License: GPL V2
+
+CHROOT_DIR="$1"
+
+[ -d "$CHROOT_DIR" ] || { echo "Usage: $0 DIRECTORY"; exit 1; }
+
+[ "`id -u`" = "0" ] || { echo "Must be root to run $0." >&2; exit 1; }
+
+BINDDIRS="proc sys dev/pts"
+
+shift
+
+trap post_chroot 1 2 3 10 15
+
+pre_chroot(){
+ echo -e "\033[1mPreparing $CHROOT_DIR...\033[0m"
+ # Get net
+ if [ -L $CHROOT_DIR/etc/resolv.conf -o -f $CHROOT_DIR/etc/resolv.conf ] && [ ! -e $CHROOT_DIR/etc/resolv.conf.before-chroot ]; then
+  mv -f $CHROOT_DIR/etc/resolv.conf $CHROOT_DIR/etc/resolv.conf.before-chroot
+  cp -f /etc/resolv.conf $CHROOT_DIR/etc/resolv.conf
+ fi
+ for i in $BINDDIRS; do mount --bind /$i "$CHROOT_DIR"/"$i"; done
+}
+
+post_chroot(){
+ for i in $BINDDIRS; do umount -l "$CHROOT_DIR"/"$i"; done
+ # Restore old resolv.conf
+ if [ -f $CHROOT_DIR/etc/resolv.conf.before-chroot -o -L $CHROOT_DIR/etc/resolv.conf.before-chroot ]; then
+  mv -f $CHROOT_DIR/etc/resolv.conf.before-chroot $CHROOT_DIR/etc/resolv.conf
+ fi
+ exit 0
+}
+
+### MAIN
+pre_chroot
+echo -e "\033[1mChrooting into $CHROOT_DIR...\033[0m" >&2
+export MAIL=/var/mail/root HOME=/root XAUTHORITY=/root/.Xauthority debian_chroot=Microknoppix
+chroot "$CHROOT_DIR" "$@"; RC="$?"
+[ "$RC" = "0" ] || echo "Last command in chroot returned $RC"
+echo -e "\033[1mLeaving $CHROOT_DIR.\033[0m" >&2
+post_chroot
+exit $RC

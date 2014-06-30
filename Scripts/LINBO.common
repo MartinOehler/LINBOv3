@@ -1,0 +1,29 @@
+#!/bin/bash
+# LINBO.common - common functions for bash scripts used in the LINBO build system
+# (C) Klaus Knopper 2013
+# License: GPL V2
+
+# Usage: check_commands command1 command2 ...
+# returns true if all commands are in $PATH, false if not
+check_commands(){
+ local cmd
+ for cmd in "$@"; do
+  type -p "$cmd" >/dev/null || return 1
+ done
+ return 0
+}
+
+# Usage: ask "prompt text"
+# returns true if "yes" and false if "no".
+ask(){
+ local answer=""
+ while true; do
+  echo -n -e "\r\e[1m$1\e[0m "
+  read -s -n 1 answer
+  case "$answer" in
+   [Yy]) return 0;;
+   [Nn]) return 1;;
+   *) echo "Please type y for \"Yes\" and n for \"No\".";;
+  esac
+ done
+}

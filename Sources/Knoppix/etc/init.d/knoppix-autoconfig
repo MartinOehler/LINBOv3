@@ -1,0 +1,989 @@
+#!/bin/busybox sh
+# /etc/init.d/knoppix-autoconfig
+# Auto-configuration and setup for Knoppix
+# (C) Klaus Knopper June 2013
+# License: GPL V2
+
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
+VERSION="TEMPLATE"
+
+# -> Seek to MAIN
+
+### Function library ###
+
+# Define the text console for logging purposes
+export LOG_CONSOLE=12
+
+# Check boot commandline for specified option
+checkbootparam(){
+ local CMDLINE
+ read CMDLINE < /proc/cmdline
+ for i in $CMDLINE; do
+  case "$i" in $1|$1=*) return 0;; esac
+ done
+ return 1
+}
+
+PROGRESSBAR="/tmp/knoppix-autoconfig.progress"
+TASKLINE="/tmp/knoppix-autoconfig.tasks"
+
+message(){
+ [ -n "$SPLASH" ] || echo "$@"
+}
+
+# Go to specific cursor position printxy col row "text..."
+printxy(){
+ [ -n "$SPLASH" ] || echo -n -e "\033[$2;$1H${3}"
+}
+
+progress_bar="\033[1mSystem Setup... "
+progress_green="\033[42;32m \033[0m"
+progress_statusrow=16
+
+start_progress(){
+ # Since we are always in textmode at this point, we need to make sure
+ # that $statusrow and below is free, and scroll up everything else.
+ [ -n "$LINES" ] || LINES=25
+ local scrollines="$((LINES - progress_statusrow))"
+ local l=0
+ while [ "$l" -lt "$scrollines" ]; do echo ""; let l++; done
+ printxy 0 $progress_statusrow "\033[J\033[$((progress_statusrow+3));0r"
+ rm -f "$PROGRESSBAR" ; true > "$PROGRESSBAR"
+ rm -f "$TASKLINE"    ; true > "$TASKLINE"
+}
+
+update_progress(){
+ [ -f "$PROGRESSBAR" ] || return 0
+ local statusmsg="" tasks=""
+ read statusmsg <"$PROGRESSBAR" 2>/dev/null
+ read tasks <"$TASKLINE" 2>/dev/null
+ progress_bar="$progress_bar$progress_green$progress_green"
+ printxy 0 $progress_statusrow "\033[1m$tasks\033[0m\n\r$progress_bar\n\r\033[K\033[1;33m$statusmsg\033[0m\n\r"
+}
+
+end_progress(){
+ [ -f "$PROGRESSBAR" ] || return 0
+ local statusmsg="" tasks=""
+ read statusmsg <"$PROGRESSBAR" 2>/dev/null
+ read tasks <"$TASKLINE" 2>/dev/null
+ progress_bar="$progress_bar$progress_green$progress_green"
+ echo -n -e "\033[r" # Re-enable scrolling for screen
+ printxy 0 $progress_statusrow "\033[1m$tasks\033[0m\n\r${progress_bar}${progress_green} OK.\n\r\033[K"
+ rm -f "$TASKLINE"
+ rm -f "$PROGRESSBAR"
+}
+
+# Check boot commandline for specified option,
+# echo last found argument, or return false.
+getbootparam(){
+ local CMDLINE
+ read CMDLINE < /proc/cmdline
+ local result=""
+ for i in $CMDLINE; do
+  case "$i" in $1=*) result="${i#*=}" ;; esac
+ done
+ [ -n "$result" ] || return 1
+ echo "$result"
+ return 0
+}
+
+addtask(){
+ [ -f "$TASKLINE" ]    && echo -n "[$1] " >>"$TASKLINE"
+}
+
+addprogress(){
+ [ -f "$PROGRESSBAR" ] && { echo "$1" >"$PROGRESSBAR"; update_progress; }
+}
+
+# Wait max. 60 seconds for pid $1 to complete
+waitpid60(){
+ local wtry
+ for wtry in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  [ -d /proc/$1 ] || break
+  sleep 3
+ done
+}
+
+# Wait max. 10 seconds for pid $1 to complete
+waitpid10(){
+ local wtry
+ for wtry in 1 2 3 4 5 6 7 8 9 10; do
+  [ -d /proc/$1 ] || break
+  sleep 1
+ done
+}
+
+# Load modules from /etc/modules (probably only relevant in installed version)
+start_modules(){
+ if [ -r /etc/modules ]; then
+  addtask "mod"; addprogress "Loading pre-defined modules..."
+  local module args
+  grep '^[^#]' /etc/modules | \
+   while read module args; do
+    [ -n "$module" ] && modprobe "$module" $args
+   done
+ fi
+}
+
+GRAPHICS_PCIIDS=""
+identify_graphics(){
+ GRAPHICS_PCIIDS="$(lspci -n 2>/dev/null | awk '$2 == "0300:"{print $3}')"
+ local GRAPHICS_INFO=""
+ local GRAPHICS_CARD=0
+ if [ -z "$SPLASH" ]; then
+  local i key value
+  for i in $GRAPHICS_PCIIDS; do
+   message -n -e "\033[1;32mGraphics $GRAPHICS_CARD:"
+   lspci -vmm -d "$i" 2>/dev/null | grep -E '(^Vendor|^Device)' | sed 's| \+| |g' | while read key value; do
+    echo -n -e " $value"
+   done
+   echo -e "\033[0m"
+   let GRAPHICS_CARD++
+  done 2>/dev/null
+ fi
+}
+
+CREATEDBYKNOPPIX="# CREATED BY KNOPPIX"
+SOUND_INDEX=""
+identify_sound(){
+ local conf id info="" sound_card=0 sound_nr=0
+ for id in $(lspci -n 2>/dev/null | awk '$2 ~ "040[13]:"{print $3}'); do
+  info="$(lspci -vmm -d "$id" 2>/dev/null | awk '/(^Vendor|^Device)/{$1=""; printf "%s",$0}' | sed 's| \+| |g')"
+  [ -z "$SPLASH" ] && message -e "\033[1;32mSound ${sound_card}:$info\033[0m"
+  case "$info" in
+   *[Hh][Dd][Mm][Ii]*) [ -n "$SOUND_INDEX" ] && SOUND_INDEX="$SOUND_INDEX,-2" || SOUND_INDEX="-2" ;;
+   *) [ -n "$SOUND_INDEX" ] && SOUND_INDEX="$SOUND_INDEX,$sound_nr" || SOUND_INDEX="$sound_nr"; let sound_nr++ ;;
+  esac
+  let sound_card++
+ done 2>/dev/null
+ # patch snd-hda-intel, so HDMI cards are always the last index.
+ if [ -n "$SOUND_INDEX" ]; then
+  for conf in /etc/modprobe.d/snd[_-]hda[_-]intel.conf; do
+   [ -r "$conf" ] || continue
+   if grep -q "^$CREATEDBYKNOPPIX" "$conf" 2>/dev/null; then
+    echo "$CREATEDBYKNOPPIX # <- Remove this to keep Knoppix from changing this file
+options snd-hda-intel index=$SOUND_INDEX" >"$conf"
+   fi
+  done
+ fi
+}
+
+wait_dri(){
+ local delay
+ for delay in 1 2 3 4 5 6; do
+  [ -d /proc/dri/0 ] && break
+  sleep 1
+ done
+}
+
+# Start DRM/KMS & eventually load Framebuffer drivers
+start_drm(){
+ addtask "drm"; addprogress "Starting DRM and Framebuffer mode..."
+ # Check for manually specified module
+ local xmod="$(getbootparam xmodule)"
+ # Default is to use KMS
+ local modeset="modeset=1" 
+ case "$GRAPHICS_PCIIDS" in
+  *8086:810[89]*) # Poulsbo/GMA500
+   # See /etc/modprobe.d/psb.conf: disable_vsync=1 detear=1 ignore_acpi=1
+   if checkbootparam "nofb"; then
+    modprobe psb no_fb=1 || modprobe psb_gfx
+   else
+    modprobe psb || modprobe psb_gfx
+   fi ;;
+  *8086:*) # Intel
+   if checkbootparam "nomodeset"; then
+    modeset="modeset=0"
+   elif checkbootparam "modeset"; then
+    modeset="modeset=1"
+   fi
+   # Caution: When using hybrid graphics, nouveau/nvidia will be instable after the intel module is loaded,
+   # so avoid loading i915 when NVidia xmodule is given in commandline
+   if [ -n "$xmod" -a "$xmod" != "nouveau" -a "$xmod" != "nvidia" ] && ! grep -q i915 /proc/devices 2>/dev/null && ! [ -d /sys/module/i915 ]; then
+    if modprobe i915 $modeset; then
+     wait_dri
+    else
+     if ! checkbootparam "nofb"; then
+      modprobe intelfb
+      modprobe i810fb
+     fi
+    fi
+   fi ;;
+  *1002:*) # AMD/ATI/Radeon
+   if checkbootparam "nomodeset"; then
+    modeset="modeset=0"
+   elif checkbootparam "modeset"; then
+    modeset="modeset=1"
+   else # Blacklist
+    case "$GRAPHICS_PCIIDS" in
+     *1002:95[cC]5*) modeset="modeset=0" ;; # RV620 LE [Radeon HD 3450]
+     *1002:68[dD]8*) export NOCOMPOSITE=1 ;; # [Radeon HD 5670]
+    esac
+   fi
+   if ! grep -q radeon /proc/devices 2>/dev/null && ! [ -d /sys/module/radeon ]; then
+    if modprobe radeon $modeset; then
+     wait_dri
+    else
+     if ! checkbootparam "nofb"; then
+      modprobe radeonfb
+     fi
+    fi
+   fi ;;
+  *12[dD]2:*|*10[Dd][Ee]:*) # NVidia
+   if checkbootparam "nomodeset"; then
+    modeset="modeset=0"
+   elif checkbootparam "modeset"; then
+    modeset="modeset=1"
+   else # Blacklist
+    case "$GRAPHICS_PCIIDS" in
+     *10[Dd][Ee]:0421*|*10[Dd][Ee]:06[Ee]4*) modeset="modeset=0" ;; # GeForce 8500 GT, 8400 GS
+    esac
+   fi
+   if [ -n "$xmod" ]; then
+    case "$xmod" in
+     nvidia) modprobe nvidia && wait_dri ;;
+     nouveau|auto) grep -q nouveau /proc/devices || [ -d /sys/module/nouveau ] || { modprobe nouveau $modeset && wait_dri; } ;;
+    esac
+   elif [ -r /etc/X11/xorg.conf ]; then
+    # If we have a ready xorg.conf, grep the module from there
+    if grep -E -q '^[[:space:]]*Driver[[:space:]]+"nvidia"' /etc/X11/xorg.conf; then
+     modprobe nvidia && wait_dri
+    elif grep -E -q '^[[:space:]]*Driver[[:space:]]+"nouveau"' /etc/X11/xorg.conf || ! grep -E -q '^[[:space:]]*Driver[[:space:]]+"(nv|nvidia|fbdev|vesa)"' /etc/X11/xorg.conf; then
+     grep -q nouveau /proc/devices || [ -d /sys/module/nouveau ] || { modprobe nouveau $modeset && wait_dri; }
+    else
+     if modprobe nvidia >/dev/null 2>&1 || modprobe nouveau $modeset; then
+      wait_dri
+     fi
+    fi
+   else
+    # Otherwise, nouveau is probably the best choice, but still prefer proprietary driver if installed.
+    if modprobe nvidia >/dev/null 2>&1 || modprobe nouveau $modeset; then
+     wait_dri
+    fi
+   fi ;;
+  *1013:*) # Cirrus
+    if ! checkbootparam "nofb"; then
+     # KVM currently has a bug that generates tons of warnings with cirrusfb :-(
+     grep -qi 'QEMU' /proc/cpuinfo || modprobe cirrusfb
+    fi ;;
+  *10[Cc]8:*) # Neomagic
+    checkbootparam "nofb" || modprobe neofb ;;
+  *1106:*) # VIA
+    if ! checkbootparam "nofb"; then
+     modprobe viafb
+     modprobe vt8623fb
+    fi ;;
+  *1039:*) # SIS
+    checkbootparam "nofb" || modprobe sisfb ;;
+  *5333:*) # S3 / Savage
+    if ! checkbootparam "nofb"; then
+     modprobe s3fb
+     modprobe savagefb
+    fi ;;
+  *100[Bb]:0030*) # Geode
+    checkbootparam "nofb" || modprobe gxfb ;;
+  *1078:0104*) # Geode 1
+    checkbootparam "nofb" || modprobe gx1fb ;;
+  *1022:2081*) # Geode lx
+    checkbootparam "nofb" || modprobe lxfb ;;
+  *121[Aa]:*) # 3Dfx
+    checkbootparam "nofb" || modprobe tdfxfb ;;
+  *10[Ee][Aa]:*) # CyberPro
+    checkbootparam "nofb" || modprobe cyber2000fb ;;
+ esac >/dev/null 2>&1 &
+ waitpid60 "$!"
+ # Loading the drm drivers may actually trigger more udev events (i.e. firmware)
+ /sbin/udevadm settle --timeout=seconds=120
+}
+
+# Play sound if soundcard is alive and soundfile present
+play_startsound(){
+ local startsoundfile="/usr/share/sounds/startup.ogg"
+ if [ -r "$startsoundfile" -a -d /proc/asound/card0 ] && \
+   type -p ogg123 >/dev/null 2>&1; then
+  ogg123 -q --audio-buffer 4096 "$startsoundfile" >/dev/null 2>&1 &
+  waitpid60 "$!"
+  local pid
+  for pid in $(pidof ogg123 2>/dev/null) ; do kill -9 "$pid"; done
+ fi
+}
+
+start_sound(){
+ addtask "snd"; addprogress "Starting sound..."
+ # Just need to delay until sound output (real soundcards) is ready.
+ type -p aumix >/dev/null 2>&1 && aumix -L >/dev/tty$LOG_CONSOLE 2>&1
+ checkbootparam nostartsound || ( play_startsound & ) >/dev/null 2>&1
+}
+
+# udev stuff
+SUBSYSTEMS_GRAPHICS="vtconsole vc mem pci misc input display video_output drm graphics firmware"
+SUBSYSTEMS_MATCH_GRAPHICS=""; SUBSYSTEMS_NOMATCH_GRAPHICS=""
+for sub in $SUBSYSTEMS_GRAPHICS; do SUBSYSTEMS_MATCH_GRAPHICS="$SUBSYSTEMS_MATCH_GRAPHICS --subsystem-match=$sub"; done
+for sub in $SUBSYSTEMS_GRAPHICS; do SUBSYSTEMS_NOMATCH_GRAPHICS="$SUBSYSTEMS_NOMATCH_GRAPHICS --subsystem-nomatch=$sub"; done
+SUBSYSTEMS_AUDIO="sound"
+SUBSYSTEMS_MATCH_AUDIO=""; SUBSYSTEMS_NOMATCH_AUDIO=""
+for sub in $SUBSYSTEMS_AUDIO; do SUBSYSTEMS_MATCH_AUDIO="$SUBSYSTEMS_MATCH_AUDIO --subsystem-match=$sub"; done
+for sub in $SUBSYSTEMS_AUDIO; do SUBSYSTEMS_NOMATCH_AUDIO="$SUBSYSTEMS_NOMATCH_AUDIO --subsystem-nomatch=$sub"; done
+export SUBSYSTEMS_MATCH_GRAPHICS SUBSYSTEMS_NOMATCH_GRAPHICS SUBSYSTEMS_MATCH_AUDIO SUBSYSTEMS_MATCH_NOAUDIO
+
+# udev_graphics
+# Trigger graphics/drm/input detection
+udev_graphics(){
+ addprogress "Detecting hardware [graphics, input]..."
+ /sbin/udevadm trigger $SUBSYSTEMS_MATCH_GRAPHICS --action=add
+ /sbin/udevadm settle --timeout=seconds=120
+ checkbootparam nodrm || start_drm
+}
+
+# udev_audio
+# Trigger audio card detection and play sound when ready
+udev_audio(){
+ local delay
+ if checkbootparam nosound || checkbootparam noaudio; then
+  return 0
+ fi
+ addprogress "Detecting hardware [audio]..."
+ /sbin/udevadm trigger $SUBSYSTEMS_MATCH_AUDIO --action=add
+ /sbin/udevadm settle --timeout=seconds=60
+ # It seems that sound devices need some more time to become ready.
+ for delay in 1 2 3 4 5 6 7 8 9 10; do
+  [ -d /proc/asound/card0/pcm0p ] && break
+  sleep 1
+ done
+ start_sound
+}
+
+# udev_all
+# Trigger detection of all remaining devices
+udev_all(){
+ addprogress "Detecting hardware [everything else]..."
+ /sbin/udevadm trigger $SUBSYSTEMS_NOMATCH_GRAPHICS $SUBSYSTEMS_NOMATCH_AUDIO --action=add
+}
+
+# start_udev: start udevd and initialize only to the point where we can start X,
+# then launch complete hardware detection asynchronously.
+start_udev(){
+ addtask "udev"; addprogress "Preparing filesystem and links for udev..."
+ mountpoint -q /dev || mount -t devtmpfs -o rw,size=20M,exec,dev udev /dev
+ mkdir -m 755 -p /dev/.udev/db /dev/.udev/queue /dev/shm /media /mnt
+ addprogress "Creating static device nodes..."
+ ln -snf /proc/self/fd /dev/fd
+ ln -snf /proc/self/fd/0 /dev/stdin
+ ln -snf /proc/self/fd/1 /dev/stdout
+ ln -snf /proc/self/fd/2 /dev/stderr
+ ln -snf /proc/kcore /dev/core
+ ln -snf /proc/asound/oss/sndstat /dev/sndstat
+ [ -x /dev/MAKEDEV ] || ln -sf /sbin/MAKEDEV /dev/MAKEDEV
+ ln -snf cloop0 /dev/cloop
+ mknod -m 666 /dev/null c 1 3 2>/dev/null; mknod -m 666 /dev/zero c 1 5 2>/dev/null; mknod -m 666 /dev/console c 5 1 2>/dev/null
+ mknod -m 666 /dev/urandom c 1 9
+ mknod -m 666 /dev/random c 1 8
+ mknod -m 666 /dev/vboxdrv c 10 59; mknod -m 666 /dev/kqemu c 250 0
+ mkfifo /dev/initctl
+ for i in `seq 0 16`; do mknod -m 666 /dev/tty$i c 4 $i; done
+ for i in `seq 0 7`; do mknod -m 666 /dev/fb$i c 29 $i; done
+ for i in `seq 0 7`; do mknod -m 666 /dev/loop$i b 7 $i; done
+ mknod -m 666 /dev/sda b 8 0
+ for i in `seq 1 15`; do mknod -m 666 /dev/sda$i b 8 $i; done
+ mknod -m 666 /dev/sdb b 8 16
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdb$i b 8 $((i + 16)); done
+ mknod -m 666 /dev/sdc b 8 32
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdc$i b 8 $((i + 32)); done
+ mknod -m 666 /dev/sdd b 8 48
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdd$i b 8 $((i + 48)); done
+ mknod -m 666 /dev/sde b 8 64
+ for i in `seq 1 15`; do mknod -m 666 /dev/sde$i b 8 $((i + 64)); done
+ mknod -m 666 /dev/sdf b 8 80
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdf$i b 8 $((i + 80)); done
+ mknod -m 666 /dev/sdg b 8 96
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdg$i b 8 $((i + 96)); done
+ mknod -m 666 /dev/sdh b 8 112
+ for i in `seq 1 15`; do mknod -m 666 /dev/sdh$i b 8 $((i + 112)); done
+ mknod -m 666 /dev/xvda b 202 0
+ for i in `seq 1 15`; do mknod -m 666 /dev/xvda$i b 202 $i; done
+ mknod -m 666 /dev/xvdb b 202 16
+ for i in `seq 1 15`; do mknod -m 666 /dev/xvdb$i b 202 $((i + 16)); done
+ mknod -m 666 /dev/xvdc b 202 32
+ for i in `seq 1 15`; do mknod -m 666 /dev/xvdc$i b 202 $((i + 32)); done
+ mknod -m 666 /dev/xvdd b 202 48
+ for i in `seq 1 15`; do mknod -m 666 /dev/xvdd$i b 202 $((i + 48)); done
+ mount -t tmpfs -o rw,size=2G,mode=1777 tmpfs /dev/shm
+ mkdir -m 1777 -p /dev/shm/network
+ echo > /proc/sys/kernel/hotplug
+ # Start udev and load only drivers that are essential for X and Networking
+ addprogress "Starting udevd..."
+ if /sbin/udevd --daemon; then
+  # X could already start after this.
+  udev_graphics
+  # Now launch remaining hardware detection in a new subshell
+  ( { udev_audio ; udev_all; } & ) >/dev/null 2>&1
+ fi
+}
+
+start_cgroup(){
+# More tuning: process control group support
+if ! checkbootparam "nocgroup" && grep -q cgroup /proc/filesystems; then
+ addtask "cg"; addprogress "Adding CPU cgroup support in /cgroup/cpu..."
+ mkdir -p -m 0777 /cgroup/cpu
+ mount -t cgroup cgroup -o cpu /cgroup/cpu
+ mkdir -m 1777 /cgroup/cpu/user
+ CGROUP_REMOVE="$(type -p cgroup-remove 2>/dev/null)"
+ if [ -x "$CGROUP_REMOVE" ]; then
+  echo -n "$CGROUP_REMOVE" > /cgroup/cpu/release_agent
+  echo -n 1 > /cgroup/cpu/notify_on_release
+ fi
+fi
+}
+
+start_scr(){
+ if checkbootparam "adriane" && type -p adriane-screenreader >/dev/null 2>&1; then
+   # Start screenreader
+   # For some reason, openvt causes speech-dispatcher to fail.
+   # /usr/bin/openvt -c $LOG_CONSOLE -f -- adriane-screenreader start
+   addtask "scr"; addprogress "Launching ADRIANE screenreader..."
+   chmod 666 /dev/tty[0-9]*
+   ( adriane-screenreader start & ) >/dev/tty$LOG_CONSOLE 2>&1
+   if [ -d /sys/bus/acpi/drivers/battery ] && type -p adriane-battery >/dev/null 2>&1; then
+    ( adriane-battery start & ) >/dev/tty$LOG_CONSOLE 2>&1
+   fi
+ fi
+}
+
+start_net(){
+ addtask "net"; addprogress "Starting network..."
+ # Remove ifup-statusfile
+ [ -f /etc/network/run/ifstate ] && rm -f /etc/network/run/ifstate 2>/dev/null
+ # In theory, we just have to wait for udev to add new network cards,
+ # and dhclient-daemon will send a broadcast automatically
+ # dhclient -q -1 -nw >/dev/tty$LOG_CONSOLE 2>&1 &
+ # /etc/init.d/resolvconf start
+ # if ! checkbootparam "nodnscache" && [ -x "/etc/init.d/bind9" ]; then
+ #  /etc/init.d/bind9 start
+ # fi
+ if route -n | grep -q '^0.0.0.0'; then # already got net via LAN/dhcp
+  if [ -d /cache -o -L /cache ]; then # got cache
+   local server="$(linbo_cmd server)"
+   if [ -n "$server" ]; then # got RSYNC server
+    mkdir -p /cache/wlan-config 2>/dev/null
+    rsync -a "$server::linbo/wlan-config/*" /cache/wlan-config/
+   fi
+  fi
+  return 0
+ else
+  if ! checkbootparam "nonetworkmanager" && [ -x "/etc/init.d/network-manager" ]; then
+   # LINBO special
+   [ -d /cache/wlan-config ] && rsync /cache/wlan-config/* /etc/NetworkManager/system-connections/ 2>/dev/null
+   ( /etc/init.d/network-manager start & ) >/dev/null 2>&1
+  else
+   ( ifup -a & ) >/dev/null 2>&1
+  fi
+ fi
+}
+
+start_swap(){
+ addtask "swap"
+ # use zram for swapping if supported
+ if ! checkbootparam "nozram"; then
+  addprogress "Activating zram compressed swap-in-ram..."
+  [ -d /sys/block/zram0 ] || { modprobe -q zram >/dev/null 2>&1; sleep 2; }
+  if [ -r /sys/block/zram0/disksize ]; then
+   local zrsize=$(awk '/MemTotal/{print int($2 * 75 / 100); exit}' /proc/meminfo)
+   let zrsize*=1024
+   if [ "$zrsize" -gt 0 ] 2>/dev/null; then
+    # Do we need > 4GB zram if we already have > 4GB real RAM? Probably not.
+    [ "$zrsize" -gt 4294967296 ] && zrsize=4294967296
+    echo "$zrsize" > /sys/block/zram0/disksize
+    # Create device if udev did not already do this
+    if [ ! -b /dev/zram0 -a -r /sys/block/zram0/dev ]; then
+     local dev="251:0" major=251 minor=0
+     read dev < /sys/block/zram0/dev
+     major="${dev%%:*}"
+     minor="${dev##*:}"
+     mknod -m 660 /dev/zram0 b "$major" "$minor"
+    fi
+    /sbin/mkswap /dev/zram0 >/dev/null 2>&1
+    # Need /sbin/swapon because of -p priority
+    /sbin/swapon -p 0 /dev/zram0 >/dev/null 2>&1
+   fi
+  fi
+ fi
+ if ! checkbootparam "noswap" && ! checkbootparam "forensic";  then
+  addprogress "Checking for swap partitions and activating swap..."
+  /sbin/swapon -a >/dev/null 2>&1
+  # Swap on Knoppix media?
+  local swap
+  for swap in /mnt-system/KNOPPIX/knoppix.swp /mnt-system/knoppix.swp; do
+   if [ -w "$swap" ]; then
+    addprogress "Starting swap [$swap]..."
+    /sbin/swapon "$swap" >/dev/null 2>&1
+   fi
+  done
+ fi
+}
+
+netbook_specials(){
+ # Enable special features if present
+ if [ -d /sys/bus/platform/devices/eeepc ]; then
+  addtask "spc"; addprogress "Enabling special features..."
+  local i; for i in camera cardr wlan; do
+   [ -r /sys/bus/platform/devices/eeepc/"$i" ] && echo 1 > /sys/bus/platform/devices/eeepc/"$i"
+  done
+ fi
+}
+
+# Wait until we have less than 10 i/o waits per 5 seconds.
+waitio(){
+ local cpu p1 p2 p3 p4 p5=0 to=45 io=10
+ while [ "$to" -gt 0 -a "$io" -ge 10 ]; do
+  sleep 5
+  read cpu p1 p2 p3 p4 p5 relax < /proc/stat
+  let io=p5-p5o p5o=p5 to--
+ done
+}
+
+# Background tasks that have to be startet AFTER udev is complete
+start_services(){
+ if ! checkbootparam "noudev"; then
+  udevadm settle
+ fi
+ # Quick tasks
+ netbook_specials
+ # This takes longer, wait for io to calm down
+ waitio
+ [ -x /etc/rc.local ] && /usr/bin/openvt -c 12 -f -- /etc/rc.local
+}
+
+start_splash(){
+ if checkbootparam "splash" && ! checkbootparam "nosplash" && type -p fbi >/dev/null 2>&1; then
+  pidof fbi >/dev/null 2>&1 || \
+   ( fbi -T 7 -1 -noedit -noverbose -t 45 /splash.ppm </dev/tty7 >/dev/null 2>&1 & )
+ else
+  return 0
+ fi
+}
+
+stop_splash(){
+ killall fbi >/dev/null 2>&1
+}
+
+bailout(){ # Should never be called.
+ rm -f "$PROGRESSBAR" "$TASKLINE"; sleep 2
+ echo "${RED}$0 exited unexpectedly, rebooting."
+ sleep 2
+ reboot -f
+ sleep 1337
+}
+
+localize(){
+ # Read locale defaults from filesystem (if present),
+ # then check commandline for override.
+ [ -r /etc/default/locale ]     && . /etc/default/locale     # Debian default
+ [ -r /etc/sysconfig/i18n ]     && . /etc/sysconfig/i18n     # KNOPPIX special
+ [ -r /etc/sysconfig/keyboard ] && . /etc/sysconfig/keyboard # KNOPPIX special
+ KLANGUAGE="$(getbootparam lang 2>/dev/null)"
+ [ -n "$KLANGUAGE" ] && LANGUAGE="$KLANGUAGE"
+
+ # Most of these variables will be used to generate the KDE defaults
+ # and will be inserted into /etc/sysconfig/* below.
+ # If someone deleted lang= in syslinux.cfg, keep everything default.
+ if [ -n "$KLANGUAGE" -a "$KLANGUAGE" != "keep" ]; then
+  case "$LANGUAGE" in
+   de) # German version
+    COUNTRY="DE"; LANG="de_DE.UTF-8"; KEYTABLE="de-latin1-nodeadkeys"; XKEYBOARD="de"; KDEKEYBOARD="de(nodeadkeys)"; CHARSET="utf8"; KDEKEYBOARDS="us,fr"; TZ="Europe/Berlin" ;;
+   be) # Belgian version
+    COUNTRY="BE"; LANG="fr_BE.UTF-8"; KEYTABLE="be2-latin1"; XKEYBOARD="be"; KDEKEYBOARD="be"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr"; TZ="Europe/Brussels" ;;
+   bg) # Bulgarian version
+    COUNTRY="BG"; LANG="bg_BG.UTF-8"; KEYTABLE="bg"; XKEYBOARD="bg"; KDEKEYBOARD="bg"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr"; TZ="Europe/Sofia" ;;
+   by|by-utf8|by.utf8) # Belarusian (utf8) version, thanks to Sergey Bychkow for providing them
+    LANGUAGE="by"; COUNTRY="BY"; LANG="be_BY.UTF-8"; KEYTABLE="by"; XKEYBOARD="by"; KDEKEYBOARD="by"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr,ru"; TZ="Europe/Minsk" ;;
+   ch) # Swiss version (basically de with some modifications)
+    LANGUAGE="de"; COUNTRY="CH"; LANG="de_CH.UTF-8"; KEYTABLE="sg-latin1"; XKEYBOARD="ch"; KDEKEYBOARD="ch"; CHARSET="utf8"; KDEKEYBOARDS="de(nodeadkeys),us,fr"; TZ="Europe/Zurich" ;;
+   cn) # Simplified Chinese version
+    COUNTRY="CN"; LANG="zh_CN.UTF-8"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="us"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr"; XMODIFIERS="@im=Chinput"; TZ="Asia/Shanghai" ;;
+   cs|cz) # Czech version
+    LANGUAGE="cs"; COUNTRY="CZ"; LANG="cs_CZ.UTF-8"; KEYTABLE="cz-lat2"; XKEYBOARD="cz"; KDEKEYBOARD="cz"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr"; TZ="Europe/Prague"; CONSOLEFONT="iso02g" ;;
+   dk|da) # Dansk version
+    COUNTRY="DK"; LANG="da_DK.UTF-8"; LANGUAGE="da:da_DK"; KEYTABLE="dk"; XKEYBOARD="dk"; KDEKEYBOARD="dk"; CHARSET="utf8"; KDEKEYBOARDS="dk,de(nodeadkeys),us,fr"; TZ="Europe/Copenhagen" ;;
+   es) # Spanish version
+    COUNTRY="ES"; LANG="es_ES.UTF-8"; KEYTABLE="es"; XKEYBOARD="es"; KDEKEYBOARD="es"; CHARSET="utf8"; KDEKEYBOARDS="de(nodeadkeys),us,fr"; TZ="Europe/Madrid" ;;
+  fi|fi-utf8|fi-utf-8) # Finnish UTF-8 version
+    COUNTRY="FI"; LANG="fi_FI.UTF-8"; KEYTABLE="fi-latin1"; XKEYBOARD="fi"; KDEKEYBOARD="fi"; CHARSET="utf8"; KDEKEYBOARDS="se,us"; TZ="Europe/Helsinki" ;;
+   fr) # French version
+    COUNTRY="FR"; LANG="fr_FR.UTF-8"; KEYTABLE="fr"; XKEYBOARD="fr"; KDEKEYBOARD="fr"; CHARSET="utf8"; KDEKEYBOARDS="de(nodeadkeys),us"; TZ="Europe/Paris" ;;
+   hu) # Hungarian version
+    COUNTRY="HU"; LANG="hu_HU.UTF-8"; LANGUAGE="hu_HU"; KEYTABLE="hu"; XKEYBOARD="hu"; KDEKEYBOARD="hu"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys)"; TZ="Europe/Budapest"; CONSOLEFONT="iso02g" ;;
+   he|il) # Hebrew version
+    LANGUAGE="he"; COUNTRY="IL"; LANG="he_IL.UTF-8"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="il"; CHARSET="utf8"; KDEKEYBOARDS="us,fr,de(nodeadkeys)"; TZ="Asia/Jerusalem" ;;
+   hi) # Hindi version
+    COUNTRY="IN"; LANGUAGE="hi_IN.UTF-8"; LANG="hi_IN.UTF-8"; KEYTABLE="us"; XKEYBOARD="dev,us"; KDEKEYBOARD="dev"; KDEKEYBOARDS="dev,us"; CHARSET="utf8"; TZ="Asia/Calcutta" ;;
+   ie) # Irish (English) version
+    COUNTRY="IE"; LANG="en_IE.UTF-8"; KEYTABLE="uk"; XKEYBOARD="gb"; KDEKEYBOARD="gb"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),es,fr,it"; TZ="Europe/Dublin" ;;
+   it) # Italian version
+    COUNTRY="IT"; LANG="it_IT.UTF-8"; KEYTABLE="it"; XKEYBOARD="it"; KDEKEYBOARD="it"; CHARSET="utf8"; KDEKEYBOARDS="fr,us,de(nodeadkeys)"; TZ="Europe/Rome" ;;
+   ja) # (limited) Japanese version
+    COUNTRY="JP"; LANG="ja_JP.UTF-8"; LANGUAGE="ja"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="us"; CHARSET="utf8"; KDEKEYBOARDS="fr,us,de(nodeadkeys)"; TZ="Asia/Tokyo" ;;
+   nl) # Dutch version
+    COUNTRY="NL"; LANG="nl_NL.UTF-8"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="en_US"; CHARSET="utf8"; KDEKEYBOARDS="nl,de(nodeadkeys),fr"; TZ="Europe/Amsterdam" ;;
+   pl) # Polish version
+    COUNTRY="PL"; LANG="pl_PL.UTF-8"; KEYTABLE="pl"; XKEYBOARD="pl"; KDEKEYBOARD="pl"; CHARSET="utf8"; KDEKEYBOARDS="de(nodeadkeys),us,fr"; TZ="Europe/Warsaw"; CONSOLEFONT="iso02g" ;;
+   ru) # Russian version
+    COUNTRY="RU"; LANG="ru_RU.KOI8-R"; KEYTABLE="ru"; XKEYBOARD="ru"; KDEKEYBOARD="ru"; CHARSET="koi8-r"; CONSOLEFONT="Cyr_a8x16"; KDEKEYBOARDS="de(nodeadkeys),us,fr"; TZ="Europe/Moscow" ;;
+   sk) # Slovak version (guessed)
+    COUNTRY="SK"; LANG="sk_SK.UTF-8"; KEYTABLE="sk-qwerty"; XKEYBOARD="sk"; KDEKEYBOARD="sk"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys)"; TZ="Europe/Bratislava"; CONSOLEFONT="iso02g" ;;
+   sl) # Slovenian keyboard
+    COUNTRY="SI"; LANG="sl_SI.UTF-8"; KEYTABLE="slovene"; XKEYBOARD="sl"; KDEKEYBOARD="si"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys)"; TZ="Europe/Ljubljana"; CONSOLEFONT="iso02g" ;;
+   tr) # Turkish version (guessed)
+    COUNTRY="TR"; LANG="tr_TR.UTF-8"; KEYTABLE="tr_q-latin5"; XKEYBOARD="tr"; KDEKEYBOARD="tr"; CHARSET="utf8"; KDEKEYBOARDS="us,de(nodeadkeys),fr"; TZ="Europe/Istanbul" ;;
+   tw|hk) # Traditional Chinese version (thanks to Andrew Lee)
+    COUNTRY="TW"; LANG="zh_TW.UTF-8"; LANGUAGE="zh_TW.UTF-8"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="us"; CHARSET="utf8"; KDEKEYBOARDS="us"; XMODIFIERS="@im=scim"; TZ="Asia/Taipei" ;;
+   uk) # British version
+    COUNTRY="UK"; LANG="en_GB.UTF-8"; LANGUAGE="en"; KEYTABLE="uk"; XKEYBOARD="gb"; KDEKEYBOARD="gb"; CHARSET="utf8"; KDEKEYBOARDS="us"; TZ="Europe/London" ;;
+   *) # American version
+    LANGUAGE=""; COUNTRY="US"; LANG="en_US.UTF-8"; KEYTABLE="us"; XKEYBOARD="us"; KDEKEYBOARD="us"; CHARSET="utf8"; KDEKEYBOARDS="de(nodeadkeys),fr"; TZ="America/New_York" ;;
+  esac
+ fi
+
+ KCOUNTRY="$(getbootparam country 2>/dev/null)"
+ [ -n "$KCOUNTRY" ] && COUNTRY="$KCOUNTRY"
+
+ # Export it now, so error messages get translated, too
+ export LANG COUNTRY CHARSET
+
+ # UTF-8: Default is "on" in newer kernels, but for practical reasons,
+ # individual languages may use latin instead, also on the initial console.
+ # case "$LANG" in
+ #  *UTF-8*) echo "1" > /sys/module/vt/parameters/default_utf8 ;;
+ #        *) echo "0" > /sys/module/vt/parameters/default_utf8 ;;
+ # esac
+
+ # Allow keyboard override by boot commandline
+ KKEYBOARD="$(getbootparam keyboard 2>/dev/null)"
+ [ -n "$KKEYBOARD" ] && KEYTABLE="$KKEYBOARD"
+ KXKEYBOARD="$(getbootparam xkeyboard 2>/dev/null)"
+ if [ -n "$KXKEYBOARD" ]; then
+  XKEYBOARD="$KXKEYBOARD"
+  KDEKEYBOARD="$KXKEYBOARD"
+ elif [ -n "$KKEYBOARD" ]; then
+  XKEYBOARD="$KKEYBOARD"
+  KDEKEYBOARD="$KKEYBOARD"
+ fi
+
+ # Set default keyboard before interactive setup
+ [ -n "$KEYTABLE" ] && loadkeys -q $KEYTABLE
+ [ -n "$CONSOLEFONT" ] && consolechars -f $CONSOLEFONT || consolechars -d
+
+ # Write KNOPPIX config files for other scripts to parse
+ [ -d /etc/sysconfig ] || mkdir -p /etc/sysconfig
+ echo "LANG=\"$LANG\""                  > /etc/sysconfig/i18n
+ echo "COUNTRY=\"$COUNTRY\""           >> /etc/sysconfig/i18n
+ echo "LANGUAGE=\"$LANGUAGE\""         >> /etc/sysconfig/i18n
+ echo "CHARSET=\"$CHARSET\""           >> /etc/sysconfig/i18n
+ echo "XMODIFIERS=\"$XMODIFIERS\""     >> /etc/sysconfig/i18n
+
+ # Default Keyboard layout for console and X
+ echo "KEYTABLE=\"$KEYTABLE\""          > /etc/sysconfig/keyboard
+ echo "XKEYBOARD=\"$XKEYBOARD\""       >> /etc/sysconfig/keyboard
+ echo "KDEKEYBOARD=\"$KDEKEYBOARD\""   >> /etc/sysconfig/keyboard
+ echo "KDEKEYBOARDS=\"$KDEKEYBOARDS\"" >> /etc/sysconfig/keyboard
+
+ # Need to add keyboard settings to debian's own config (HAL)
+ if [ -r /etc/default/keyboard ]; then
+  if [ -n "$XKEYBOARD" ]; then
+   case "$XKEYBOARD" in
+    de*) sed -i -e "s|^XKBLAYOUT=.*\$|XKBLAYOUT=\"$XKEYBOARD\"|g" -e "s|^XKBVARIANT=.*\$|XKBVARIANT=\"nodeadkeys\"|g" /etc/default/keyboard ;;
+      *) sed -i -e "s|^XKBLAYOUT=.*\$|XKBLAYOUT=\"$XKEYBOARD\"|g" -e "s|^XKBVARIANT=.*\$|XKBVARIANT=\"\"|g" /etc/default/keyboard ;;
+   esac
+  fi
+ fi
+    
+ # Debian uses /etc/default/locale, syntax should be the same
+ # as our settings in /etc/environment
+ [ -d /etc/default ]        || mkdir -p /etc/default
+ [ -r /etc/default/locale ] || ln -s /etc/environment /etc/default/locale 2>/dev/null
+
+ # OpenOffice & others
+ echo "LANG=\"$LANG\""           > /etc/environment
+ echo "LANGUAGE=\"$LANGUAGE\""  >> /etc/environment
+ echo "LC_MESSAGES=\"$LANG\""   >> /etc/environment
+ [ -n "$COUNTRY" ] && echo "COUNTRY=\"$COUNTRY\""  >> /etc/environment
+
+# Set timezone
+ KTZ="$(getbootparam tz)"
+ [ -n "$KTZ" ] || KTZ="$(getbootparam timezone)"
+ [ -n "$KTZ" -a "$KTZ" != "auto" ] && TZ="$KTZ"
+ if [ -n "$TZ" ]; then
+  echo "$TZ" > /etc/timezone
+  rm -f /etc/localtime
+  [ -r /usr/share/zoneinfo/"$TZ" ] && { cp -f /usr/share/zoneinfo/"$TZ" /etc/localtime; }
+ fi
+
+} # End of localize()
+
+# Global variables
+DEBUG=""
+SPLASH=""
+INSTALLED=""
+
+start_proc(){
+ # /proc tuning & Quiet boot
+ [ -d /proc/1 ] || mount -t proc proc /proc
+ echo 0 >/proc/sys/kernel/printk
+ # Writeback every 30 secs maximum
+ echo 3000 > /proc/sys/vm/dirty_writeback_centisecs
+ # Don't swap unless necessary
+ echo 5 > /proc/sys/vm/swappiness
+ # Some programs seem to require incredible amounts of memory, and
+ # will just crash if overcommit is set to off.
+ echo 1 > /proc/sys/vm/overcommit_memory
+ # If we have enough RAM, increase the "minimal free" threshold
+ if [ -r /proc/sys/vm/min_free_kbytes -a "$(awk '/MemTotal/{print int($2 / 1024); exit}' /proc/meminfo)" -gt 500 ]; then
+  echo 16386 > /proc/sys/vm/min_free_kbytes
+ fi
+}
+
+check_start_debug(){
+ checkbootparam "debug" && DEBUG="true"
+ [ -n "$DEBUG" ] && set -x
+}
+
+check_rootfs(){
+ mount -n -o remount,rw / 2>/dev/null
+}
+
+check_start_splash(){
+ if [ -z "$DEBUG" ] && checkbootparam splash && ! checkbootparam nosplash; then
+  SPLASH="true"
+  # start_splash # Eventually show splashscreen
+ fi
+}
+
+start_sys(){
+ [ ! -d /sys/bus ] && mount -t sysfs sysfs /sys
+ [ ! -r /proc/bus/usb/devices -a -d /proc/bus/usb ] && mount -t usbfs -o rw usbfs /proc/bus/usb
+ # Some system tuning
+ # Clock up CPUs early in case there is much work to do, for increasing videoplayer and interactive
+ # performance. The default was 95%.
+ [ -r /sys/devices/system/cpu/cpufreq/ondemand/up_threshold ] && echo 40 > /sys/devices/system/cpu/cpufreq/ondemand/up_threshold
+}
+
+start_clock(){
+ local UTC=""
+ checkbootparam utc && UTC="-u"
+ export UTC # local export only visible to subprocess of this function
+ ( hwclock $UTC -s & ) >/dev/null 2>&1 # background, can hang
+}
+
+check_installed(){
+ [ -d /UNIONFS/etc ] || INSTALLED="true"
+}
+
+start_hostname(){
+ local hostname
+ [ -r /etc/hostname ] && read hostname < /etc/hostname
+ [ -n "$hostname" ] || hostname="Knoppix"
+ hostname "$hostname"
+}
+
+start_loopback(){
+ ifconfig lo 127.0.0.1 up
+}
+
+start_fs(){
+ if [ -z "$INSTALLED" ]; then
+  # Mount more ramdisks, it's safer to split these than only having ONE /ramdisk
+  # because we then can limit the directory content size
+
+  # Newer initscripts versions use this instead
+  [ -d /run ]  || mkdir /run
+  mount -t tmpfs  -o rw,size=400M,suid,dev tmpfs /run
+  [ -d /run/lock ]  || mkdir /run/lock
+  # older initscripts versions use this
+  [ -d /var/run ]  || mkdir /var/run
+  mount -o bind /run /var/run
+  [ -d /var/lock -o -L /var/lock ] || mkdir /var/lock
+  [ -d /var/lock ] && mount -t tmpfs  -o rw,size=10M,suid,dev tmpfs /var/lock
+  [ -d /var/log ]  || mkdir /var/log
+  mount -t tmpfs -o rw,size=100M,suid,dev tmpfs /var/log
+  # Recreate run/log/lock directory structure from /KNOPPIX on tmpfs, including correct permissions
+  # cpio/busybox syntax
+  ( cd /KNOPPIX && find run var/run var/lock var/log -type d -print0 | cpio -m -H newc -o ) 2>/dev/null | ( cd / && cpio -dmu -i ) 2>/dev/null
+  # Should exist
+  :> /var/log/wtmp
+ else
+  find /run /var/run/ -name \*pid -type f -exec rm -f {} \; >/dev/null 2>&1
+ fi # End !INSTALLED
+ # Should exist and be empty in each new session
+ :> /var/run/utmp
+ chmod 664 /var/run/utmp
+ chgrp utmp /var/run/utmp
+ # This should ALWAYS be tmpfs
+ [ -d /tmp ]      || mkdir /tmp
+ mount -t tmpfs -o rw,mode=1777,size=2G,exec,suid,dev tmpfs /tmp
+}
+
+start_log(){
+ addtask "log"; addprogress "Starting syslog daemon (console $LOG_CONSOLE)..."
+ [ -x /sbin/klogd ] && /sbin/klogd -c 1 -x
+ [ -x /usr/sbin/syslogd -a -r /etc/syslog-knoppix.conf ] && \
+   /usr/sbin/syslogd -f /etc/syslog-knoppix.conf || /usr/sbin/syslogd
+}
+
+start_devpts(){
+ [ -d /dev/pts ]  || mkdir /dev/pts
+ mount -t devpts -o rw,mode=1777 devpts /dev/pts
+}
+
+start_hwsetup(){
+ # Make sure that /etc/X11/xorg.conf is recreated in live version, if no customized
+ # version exists.
+ [ -z "$INSTALLED" -a -r /etc/sysconfig/xserver ] && rm -f /etc/sysconfig/xserver
+ addtask "hw"; addprogress "Starting hardware detection and configuration (hwsetup) ..."
+ hwsetup
+}
+
+start_dbus(){
+ addtask "dbus"; addprogress "Starting dbus..."
+ /etc/init.d/dbus start >/dev/tty$LOG_CONSOLE 2>&1
+}
+
+start_hal(){
+ addtask "hal"; addprogress "Starting hardware abstraction layer..."
+ /etc/init.d/hal start >/dev/tty$LOG_CONSOLE 2>&1
+}
+
+start_acpi(){
+ if ! checkbootparam "noacpi" && [ -d /sys/bus/acpi ]; then
+  addtask "acpi"; addprogress "Starting ACPI..."
+  found=""
+  for a in /lib/modules/$KERNEL/kernel/drivers/acpi/*; do
+   basename="${a##*/}"; basename="${basename%%.*}"
+   case "$basename" in *_acpi)
+    grep -i "${basename%%_acpi}" /sys/firmware/acpi/tables/DSDT >/dev/null 2>&1 || continue ;;
+   esac
+   /sbin/modprobe $basename >/dev/null 2>&1 && found="yes"
+  done
+  if ! checkbootparam "noacpid"; then
+   ( for s in /etc/init.d/acpid /etc/init.d/acpi-support; do [ -x "$s" ] && "$s" start; done & ) >/dev/null 2>&1
+  fi
+ fi
+}
+
+### MAIN ###
+
+message -e "\033[1mLINBO Filesystem Build: $VERSION\033[0m"
+
+# Bailout in case of a segfault, which indicates that something is really badly broken
+trap bailout 13
+
+# Set up /proc filesystem with some tuning
+start_proc
+
+# Identify graphics card
+identify_graphics
+
+# Identify sound card
+identify_sound
+
+# Check for "debug" option and eventually start reporting commands
+check_start_debug
+
+# Check and mount rootfs rw
+check_rootfs
+
+# Mount /sys and usbfs if not already present
+start_sys
+
+# Set system clock to BIOS clock
+start_clock
+
+# Start splashscreen if requested and DEBUG is not set
+check_start_splash
+
+# Is this a HD installation or live system? Set INSTALLED accordingly
+check_installed
+
+# Set hostname
+start_hostname
+
+# Start loopback device
+start_loopback
+
+# Mount more ramdisks in case of running live
+start_fs
+
+# Set locale/keyboard
+localize
+
+# Now start the progress bar to show where we are in the bootup process.
+if [ -z "$DEBUG" -a -z "$SPLASH" ]; then
+ start_progress
+fi
+
+# Load modules listed in /etc/modules
+start_modules
+
+# Start udev now, /dev will be remounted
+checkbootparam "noudev" || start_udev
+
+# Send logging messages to /dev/tty$LOG_CONSOLE. Since we need a socket
+# in /dev, this requires udev to run earlier.
+# start_log
+
+# mount devpts now
+start_devpts
+
+# mount cgroup
+# start_cgroup # Already default in Kernel 2.6.39
+
+# Knoppix hardware setup (i.e. X config)
+checkbootparam nohwsetup || start_hwsetup
+
+# Start dbus now, which is prerequisite to network-manager and hal
+start_dbus
+
+# With xorg 7.4, hal is a prerequisite
+start_hal
+
+# ACPI handling
+start_acpi
+
+# Beginning here, all tasks should launch itself in the background,
+# so the system can quickly start up in the default runlevel.
+
+# It is OK to start network-manager before udev is complete
+checkbootparam "nfsdir" || checkbootparam "nonetwork" || start_net
+
+# Start screenreader, if in ADRIANE mode
+start_scr
+
+# Start swapping, if swap partitions are detected
+start_swap
+
+# Start services (especially /etc/rc.local) in background
+addtask "bg"; addprogress "Starting background services..."
+( start_services  & ) >/dev/tty"$LOG_CONSOLE" 2>&1 # Not in job list
+
+# End progress bar
+end_progress
+
+# Stop splashscreen
+# Should not be necessary, since splash terminates automatically after 30 secs.
+# stop_splash
+
+# Done, now reset framebuffer
+# echo -n "c"
+
+# Wait for all non-detached processes of this shell to finish
+# Actually, there should't be any.
+# wait
+
+# Execute user-defined knoppix.sh on our boot medium
+[ -n "$knoppix_dir" ] || knoppix_dir="KNOPPIX"
+for knoppixsh in /mnt-system/"$knoppix_dir"/knoppix.sh; do
+ if [ -r "$knoppixsh" ]; then
+  echo -e "\n\r\033[1mExecuting $knoppixsh.\033[0m"
+  . "$knoppixsh"
+ fi
+done
+
+: End of /etc/init.d/knoppix-autoconfig and leave with "true" status

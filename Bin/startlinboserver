@@ -1,0 +1,107 @@
+#!/bin/bash
+
+START_DHCPD=yes
+START_TFTPD=yes
+START_RSYNCD=yes
+START_NFSD=yes
+START_SAMBA=yes
+
+STATUSFILE=/var/run/linbo.status
+
+# ANSI-defined Colors
+RED="\033[1;31m"
+BOLD="\033[1m"
+NORMAL="\033[0m"
+
+if [ -r "$STATUSFILE" ]; then
+ echo -e "${RED}$STATUSFILE is already present, please run \"stoplinboserver\" first,"
+ echo -e "or remove the stale file.${NORMAL}"
+ exit 1
+fi
+
+if ! grep -q '^\[linbo\]' /etc/rsyncd.conf >/dev/null 2>&1; then
+ echo -e "${RED}No [linbo] directive in /etc/rsyncd.conf,"
+ echo -e "no Images can be downloaded or synced to the clients.${NORMAL}"
+ START_RSYNCD=""
+fi
+
+if ! grep -q '^\[linbo-upload\]' /etc/rsyncd.conf >/dev/null 2>&1; then
+ echo -e "${RED}No [linbo-upload] directive in /etc/rsyncd.conf,"
+ echo -e "you will not be able to authenticate admin actions"
+ echo -e "or upload new images from LINBO clients.${NORMAL}"
+fi
+
+if ! grep -q '^/' /etc/exports >/dev/null 2>&1; then
+ echo -e "${BOLD}No directories exported in /etc/exports,"
+ echo -e "therefore not starting NFS server.${NORMAL}"
+ START_NFSD=""
+fi
+
+if ! grep -qi '^\[linbo\]' /etc/samba/smb.conf >/dev/null 2>&1; then
+ echo -e "${BOLD}No [linbo] directive in /etc/samba/smb.conf,"
+ echo -e "therefore not starting SAMBA server.${NORMAL}"
+ START_SAMBA=""
+fi
+
+if ! grep -qi 'linbo clients' /etc/dhcp/dhcpd.conf >/dev/null 2>&1; then
+ echo -e "${BOLD}No 'linbo clients' comment in /etc/dhcp/dhcpd.conf,"
+ echo -e "therefore not starting DHCP and TFTP server.${NORMAL}"
+ START_DHCPD=""
+ START_TFTPD=""
+elif ! ls -d /tftpboot/*[Ll][Ii][Nn][Bb][Oo]* >/dev/null 2>&1; then
+ echo -e "${BOLD}No linbo kernel or files in /tftpboot,"
+ echo -e "therefore not starting TFTP server.${NORMAL}"
+ START_TFTPD=""
+fi
+
+# Start them
+
+rm -f "$STATUSFILE"
+
+log_start(){
+ local DAEMON="$1"
+ if [ -x "$DAEMON" ]; then
+  sudo bash -c "$DAEMON start; echo $DAEMON started >> $STATUSFILE"
+ else
+  echo -e "${RED}$DAEMON is not installed.${NORMAL}"
+ fi
+}
+
+if [ "$START_RSYNCD" = "yes" ]; then
+ log_start /etc/init.d/rsync
+fi
+
+if [ "$START_NFSD" = "yes" ]; then
+ for p in portmap rpcbind; do
+  if [ -x /etc/init.d/"$p" ]; then
+   log_start /etc/init.d/"$p"
+   break
+  fi
+ done
+ log_start /etc/init.d/nfs-common
+ log_start /etc/init.d/nfs-kernel-server
+fi
+
+if [ "$START_SAMBA" = "yes" ]; then
+ log_start /etc/init.d/samba
+fi
+
+if [ "$START_DHCPD" = "yes" ]; then
+ for p in isc-dhcp-server dhcp-server dhcpd; do
+  if [ -x /etc/init.d/"$p" ]; then
+   log_start /etc/init.d/"$p"
+   break
+  fi
+ done
+fi
+
+if [ "$START_TFTPD" = "yes" ]; then
+ for p in tftpd-hpa atftpd tftpd; do
+  if [ -x /etc/init.d/"$p" ]; then
+   log_start /etc/init.d/"$p"
+   break
+  fi
+ done
+fi
+
+echo -e "${BOLD}Servers started, type \"stoplinboserver\" to terminate.${NORMAL}"

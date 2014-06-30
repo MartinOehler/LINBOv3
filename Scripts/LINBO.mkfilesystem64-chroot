@@ -1,0 +1,27 @@
+#!/bin/bash
+# This has to run inside chroot
+# Create another chroot container for 64bit apps
+# See https://www.virtualbox.org/wiki/Setup_Jail
+
+[ "`stat --printf '%i' /.`" -gt 2 ] || { echo "$0 must NEVER be run outside of chroot, exiting"'!'; exit 1; }
+
+sudo ln -nf /etc/hostname /64/etc/hostname
+sudo ln -nf /etc/environment /64/etc/environment
+sudo ln -nf /etc/passwd /64/etc/passwd
+sudo ln -nf /etc/group /64/etc/group
+sudo ln -nf /etc/shadow /64/etc/shadow
+sudo ln -nf /etc/sudoers /64/etc/sudoers
+sudo ln -nf /etc/localtime /64/etc/localtime
+sudo ln -nf /etc/locale.gen /64/etc/locale.gen
+sudo ln -nf /etc/timezone /64/etc/timezone
+sudo ln -nf /etc/resolv.conf /64/etc/resolv.conf
+sudo ln -nf /etc/apt/sources.list /64/etc/apt/sources.list
+
+BINDDIRS="/sys /proc /dev /home /tmp /var/tmp /usr/src /lib/modules"
+
+for i in $BINDDIRS; do sudo mount --bind "$i" "/64$i"; done
+
+touch /64/etc/init.d/udev
+chroot /64 bash -c "apt-get update; apt-get install -t unstable --no-install-recommends locales procps virtualbox virtualbox-qt kmod"
+
+for i in $BINDDIRS; do sudo umount "/var/64$i"; done

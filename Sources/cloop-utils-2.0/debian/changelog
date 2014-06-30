@@ -1,0 +1,11 @@
+cloop-utils (2.0-2) unstable; urgency=low
+
+  * Also show progress in % when using -s xK option.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Thu, 16 Jan 2014 19:30:03 +0100
+
+cloop-utils (2.0-1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Klaus Knopper <knoppix@knopper.net>  Tue, 30 Jul 2013 22:15:54 +0200

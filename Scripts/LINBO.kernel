@@ -1,0 +1,79 @@
+#!/bin/bash -x
+# LINBO.kernel
+# download, configure and prepare Linux kernel with cloop+aufs for Knoppix
+# (C) Klaus Knopper 2013
+# License: GPL V2
+
+
+[ -n "$KVERS" ] || { echo "Please export KVERS=kernelversion before running $0." >&2; exit 1; }
+
+mkdir -p Kernel
+cd Kernel || exit 0
+
+skip(){
+TARFILE=linux-"$KVERS".tar.xz
+
+if ! [ -r "$TARFILE" ]; then
+ echo -e "\033[1mFetching kernel $KVERS from kernel.org.\033[0m"
+ wget http://www.kernel.org/pub/linux/kernel/v3.x/"$TARFILE" || { rm -f "$TARFILE"; exit 1; }
+fi
+
+if ! [ -d linux-"$KVERS" ]; then
+ echo -e "\033[1mUnpacking kernel $KVERS.\033[0m"
+ xz -dc "$TARFILE" | tar xf - || { rm -rf linux-"$KVERS"; exit 1; }
+fi
+
+# KERNEL="$(ls -1d linux-*/. | tail -1)"
+# KVERS="$(awk '{if($1~/^VERSION$/){version=$NF}if($1~/^PATCHLEVEL$/){patchlevel=$NF}if($1~/^SUBLEVEL$/){sublevel=$NF}if($1~/^EXTRAVERSION$/){if($NF != "="){extraversion=$NF}}}END{print version"."patchlevel"."sublevel extraversion}' $KERNEL/Makefile)"
+
+CLOOP_VERSION="$(awk '/CLOOP_VERSION/{print $NF; exit 0}' ../Sources/Cloop/cloop.c)"
+CLOOP_VERSION="${CLOOP_VERSION#\"}"
+CLOOP_VERSION="${CLOOP_VERSION%\"}"
+
+for cloop in cloop.c cloop.h; do
+ [ -r linux-"$KVERS"/drivers/block/"$cloop" ] || cp ../Sources/Cloop/"$cloop" linux-"$KVERS"/drivers/block/ 
+done
+
+if ! grep -q ' cloop\.o' linux-"$KVERS"/drivers/block/Makefile; then
+ echo -e "\033[1mPatching Kernel $KVERS with cloop $CLOOP_VERSION.\033[0m"
+ sed -i 's/ loop\.o/ loop.o cloop.o/g' linux-"$KVERS"/drivers/block/Makefile
+fi
+
+AUFS_VERSION="$(awk '/AUFS_VERSION/{print $NF; exit 0}' ../Sources/aufs3-standalone.git/include/uapi/linux/aufs_type.h)"
+AUFS_VERSION="${AUFS_VERSION#\"}"
+AUFS_VERSION="${AUFS_VERSION%\"}"
+
+(
+  AUFS_PATCHES=""
+  cd linux-"$KVERS"
+  for i in aufs3-kbuild.patch aufs3-base.patch aufs3-proc_map.patch aufs3-mmap.patch aufs3-standalone.patch ; do
+   [ -r ../../Sources/aufs3-standalone.git/"$i" ] || continue
+   if patch -f --dry-run -s -p1 < ../../Sources/aufs3-standalone.git/"$i" >/dev/null 2>&1; then
+    AUFS_PATCHES="$AUFS_PATCHES $i"
+    echo -n -e "\r\033[1mPatching Kernel $KVERS with aufs $AUFS_VERSION:$AUFS_PATCHES.\033[0m"
+    patch -s -p1 < ../../Sources/aufs3-standalone.git/"$i" || { echo -e "\n\033[1mERROR $?, exiting.\033[0m"; exit 1; }
+   fi
+  done
+  [ -n "$AUFS_PATCHES" ] && echo ""
+  exit 0
+)
+
+[ "$?" = "0" ] || exit 1
+
+cp -auv ../Sources/aufs3-standalone.git/{Documentation,fs} linux-"$KVERS"/
+cp -auv ../Sources/aufs3-standalone.git/include/linux/*.h linux-"$KVERS"/include/linux/
+cp -auv ../Sources/aufs3-standalone.git/include/uapi/linux/*.h linux-"$KVERS"/include/uapi/linux/
+} # end skip
+
+for arch in "$ARCH" "$ARCH64"; do
+ [ -n "$arch" ] || continue
+ case "$arch" in $ARCH64) CROSS="--cross-compile=- --append-to-version=-64";; *) CROSS="";; esac
+ if ! [ -r linux-"$KVERS"/arch/"$arch"/boot/bzImage -a linux-"$KVERS"/.config -nt ../Sources/kernel-"$arch".conf ]; then
+  echo -e "\033[1m(Re-)building kernel $KVERS for $arch\033[0m"
+  cp ../Sources/kernel-"$arch".conf linux-"$KVERS"/.config
+  read -p "Update/modify kernel configuration? [Y/n] " a
+  case "$a" in N*|n*) ;; *) ( cd linux-"$KVERS" && make ARCH="$arch" oldconfig menuconfig ) && cp -au linux-"$KVERS"/.config ../Sources/kernel-"$arch".conf;; esac
+  ( cd linux-"$KVERS" && make -j8 ARCH="$arch" bzImage modules; \
+ 	 rm -rf debian; CONCURRENCY_LEVEL=8 ARCH="$arch" MODULE_LOC=`pwd`/../modules fakeroot make-kpkg --arch="$arch" $CROSS --us --uc kernel_image modules_image kernel_headers kernel_source ) || { echo -e "\n\033[1mERROR, exiting.\033[0m"; exit 1; }
+ fi
+done

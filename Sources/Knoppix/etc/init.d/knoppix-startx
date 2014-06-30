@@ -1,0 +1,203 @@
+#!/bin/bash
+
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
+
+# Check boot commandline for specified option,
+# echo last found argument, or return false.
+getbootparam(){
+ local result="" i CMDLINE
+ read CMDLINE < /proc/cmdline
+ for i in $CMDLINE; do
+  case "$i" in $1=*) result="${i#*=}" ;; esac
+ done
+ [ -n "$result" ] || return 1
+ echo "$result"
+ return 0
+}
+
+# if knoppix-autoconfig is still running, wait until udev
+# has initialized all input/graphics hardware
+
+waitconfig(){
+ local statfile="/tmp/knoppix-autoconfig.x.done"
+ while true; do
+  if ! pidof -x knoppix-autoconfig >/dev/null 2>&1; then
+   [ -r "$statfile" ] && rm -f "$statfile"
+   break
+  fi
+  test -r "$statfile" && break
+  sleep 1
+ done
+}
+
+# Patch system for using nvidia proprietary libs
+select_nvidia(){
+ [ -L /etc/alternatives/glx ] && [ -d /usr/lib/nvidia ] &&  update-alternatives --set glx /usr/lib/nvidia
+ [ -x /etc/init.d/nvidia-kernel ] && /etc/init.d/nvidia-kernel start >/dev/null 2>&1
+}
+ 
+# Unpatch system for using nvidia proprietary libs
+unselect_nvidia(){
+ [ -L /etc/alternatives/glx ] && [ -d /usr/lib/mesa-diverted ] &&  update-alternatives --set glx /usr/lib/mesa-diverted
+}
+
+
+# Start function
+start(){
+ # Read default from /etc/default (Debian) and/or /etc/sysconfig (Knoppix)
+ USER="knoppix"
+ GROUP="knoppix"
+ SESSION="linbo"
+ [ -r /etc/default/user ] && . /etc/default/user 
+ [ -r /etc/sysconfig/user ] && . /etc/sysconfig/user 
+ [ -r /etc/sysconfig/desktop ] && . /etc/sysconfig/desktop 
+
+ [ -n "$DESKTOP" ] || DESKTOP="$(getbootparam desktop)"
+ [ -n "$DESKTOP" ] || DESKTOP="$SESSION"
+ [ -n "$DPI" ] || DPI="$(getbootparam dpi)"
+ [ -n "$DPI" ] || DPI="96"
+
+ STARTUP="start$DESKTOP"
+ type -p "$STARTUP" >/dev/null 2>&1 || STARTUP="$DESKTOP-session"
+ type -p "$STARTUP" >/dev/null 2>&1 || STARTUP="startlxde"
+ 
+ # Create home if not existing.
+ [ -d /home/"$USER" ] || install -d -m 700 -o "$USER" -g "$GROUP" /home/"$USER"
+ 
+ # Parse/create Xserver config, retry with different modules in case of failure
+ XMODULE=""
+ [ -r /etc/sysconfig/xserver ] && . /etc/sysconfig/xserver
+ 
+# if [ -z "$XMODULE" ]; then
+  # Workaround for failing 7.4 radeonhd autodetection
+  # for i in `lspci -mm | awk '/[Vv][Gg][Aa] compatible [Cc]ontroller/{print $1}'`; do
+  # case "$(lspci -k -s "$i")" in
+  #  *[Rr]adeon\ [Hh][Dd]*) XMODULE="radeonhd"; break ;;
+  # esac
+  # done
+# fi
+
+ XMODULES=("$XMODULE")
+ case "$XMODULE" in
+  nvidia)
+   XMODULES[1]=nouveau
+   XMODULES[2]=nv
+   ;;
+  nouveau)
+   XMODULES[1]=nv
+   ;;
+ esac
+
+ for xm in "${XMODULES[@]}" vesa fbdev; do # XMODULE="" -> autodetect!
+
+  if [ -n "$xm" -a "$xm" != "$XMODULE" ] && type -p mkxorgconfig >/dev/null 2>&1; then
+   # Recreate xorg.conf for new module
+   rm -f /etc/X11/xorg.conf
+   echo "XMODULE='$xm'" >> /etc/sysconfig/xserver
+   XORGOPTIONS=""
+   case "$xm" in nv|fbdev|vesa) ;; *) XORGOPTIONS="$XORGOPTIONS -composite" ;; esac
+   mkxorgconfig $XORGOPTIONS
+  fi
+
+  # Check for Nouveau, eventually force module loading now
+  # as they are blacklisted in /etc/modprobe.d/blacklist-knoppix.conf
+  if grep -E -q '^[[:space:]]*Driver[[:space:]]+"nouveau"' /etc/X11/xorg.conf; then
+   [ -d /sys/module/nvidia  ]  && rmmod nvidia >/dev/null 2>&1
+   [ -d /sys/module/nvidiafb ] && rmmod nvidiafb >/dev/null 2>&1
+   [ -d /sys/module/nouveau ]  || modprobe nouveau >/dev/null 2>&1
+   unselect_nvidia
+  elif grep -E -q '^[[:space:]]*Driver[[:space:]]+"nvidia"' /etc/X11/xorg.conf; then
+   [ -d /sys/module/nouveau ]  && rmmod nouveau >/dev/null 2>&1
+   [ -d /sys/module/nvidiafb ] && rmmod nvidiafb >/dev/null 2>&1
+   [ -d /sys/module/nvidia  ]  || modprobe nvidia >/dev/null 2>&1
+   select_nvidia
+  elif grep -E -q '^[[:space:]]*Driver[[:space:]]+"nv"' /etc/X11/xorg.conf; then
+   [ -d /sys/module/nvidia  ]  && rmmod nvidia >/dev/null 2>&1
+   [ -d /sys/module/nouveau ] && rmmod nouveau >/dev/null 2>&1
+   unselect_nvidia
+  else
+   unselect_nvidia
+  fi
+  
+  oldtime="$(date +'%s')"
+  # Older compiz versions start gtk-window-decorator only if GNOME_DESKTOP_SESSION_ID is set.
+  sessreg -a -l :0 -x /etc/X11/xdm/Xservers $USER
+  rm -f /tmp/.restartx
+  su -l -c "export STARTUP=$STARTUP ; exec /usr/bin/startx -- vt5 -dpi "$DPI" -br -noreset -nolisten tcp" "$USER" </dev/tty5 >/dev/tty5 2>&1 ; RC="$?"
+  sessreg -d -l :0 -x /etc/X11/xdm/Xservers $USER
+  newtime="$(date +'%s')"
+  if [ "$((newtime - oldtime))" -lt 30 ]; then
+   # If X stays up no longer than 30 secs, it crashed, probably.
+   [ "$RC" = "0" ] || continue
+   tail /var/log/Xorg.0.log | egrep -q "(^Fatal server error:|[Ss]egmentation)" && continue
+  fi
+  if [ ! -r /tmp/.restartx ]; then
+   # Temporary workaround for missing KDE/Gnome shutdown button
+   case "$STARTUP" in
+    *kde*|*gnome*)
+     if runlevel | grep -q -E '5$'; then
+      /sbin/init 0
+      sleep 4
+     fi
+    ;;
+   esac
+  fi
+  break
+ done
+ [ "$RC" = "0" ] || error_msg
+ return "$RC"
+}
+
+stop(){
+ killall Xorg startx >/dev/null 2>&1
+}
+
+start_msg(){
+ case "$LANG" in
+  de*) STARTMSG="\n[1m==========================================================================\nDie die graphische Oberfläche wird gestartet. Einen Moment bitte...\n==========================================================================[0m";;
+    *) STARTMSG="\n[1m==========================================================================\nThe graphical environment is being started, please wait...\n==========================================================================[0m";;
+ esac
+ echo -e "$STARTMSG"
+}
+
+error_msg(){
+ # Shutdown or failure messages
+ case "$LANG" in
+  de*)
+  ERRORMSG="\n[1mDie graphische Oberfläche konnte nicht gestartet werden\noder wurde unerwartet beendet.\nVermutlich sind Grafikkarte oder Monitor nicht automatisch konfigurierbar.\n\nBitte versuchen Sie einen Neustart und geben Sie beim boot:-Prompt\ndie Knoppix-Cheatcodes (Bootoptionen) passend zu Ihrer Grafikkarte ein.\nBeispiele:\n   knoppix xmodule=radeon (oder ati, nv, cirrus, ...)\n   knoppix xmodule=fbdev\n   knoppix xmodule=vesa\n   knoppix hsync=90 vsync=75[0m\n"
+  RETURNPROMPT="Bitte EINGABETASTE drücken, um den Rechner neu zu starten.";;
+ *)
+  STARTMSG="\n[1m==========================================================================\nThe graphical environment is being started, please wait...\n==========================================================================[0m"
+  ERRORMSG="[1mThe graphical subsystem could not be startet\nor terminated unexpectedly.\nMaybe your graphics adapter or monitor are not auto-configurable.\n\nPlease try to reboot and give some of the Knoppix-Cheatcodes\nat the initial boot:-prompt, which match your graphics adapter.\nExamples:\n   knoppix xmodule=radeon (or ati, nv, cirrus, ...)\n   knoppix xmodule=fbdev\n   knoppix xmodule=vesa\n   knoppix hsync=90 vsync=75[0m\n"
+  RETURNPROMPT="Please hit ENTER to reboot.";;
+ esac
+ echo -e "$ERRORMSG"
+}
+
+### MAIN
+
+# Not used, start right after knoppix-autoconfig
+# waitconfig
+
+# Switch to default language
+if [ -r /etc/sysconfig/i18n ]; then
+ . /etc/sysconfig/i18n
+elif [ -r /etc/default/locale ]; then
+ . /etc/default/locale
+fi
+
+[ -n "$LANG" ] && export LANG
+[ -n "$LANGUAGE" ] && export LANGUAGE
+[ -n "$LC_MESSAGES" ] && export LC_MESSAGES
+
+case "$1" in
+ start) start_msg; start ;;
+ stop)  stop  ;;
+ restart) stop; sleep 4
+          # In runlevel 5, knoppix-startx is respawned by init
+          if ! runlevel | grep -q -E '5$'; then
+           start
+          fi ;;
+esac
+
+exit $?

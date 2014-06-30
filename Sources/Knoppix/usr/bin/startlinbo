@@ -1,0 +1,21 @@
+#!/bin/bash -login
+# startlinbo - X session starter for LINBO
+# (C) Klaus Knopper 2013
+# 
+
+openbox --replace &
+x11vnc -loop -shared -forever -noxdamage -rfbauth .vnc/passwd >/dev/null 2>&1  &
+
+# [ -r Menu/index.html ] && cd Menu
+# exec iceweasel index.html
+find .mozilla \( -name \*lock -o -name sessionstore\* \) -exec rm -rf {} \;
+
+success=""
+
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+ wget -O /dev/null http://localhost/ && { success="true"; break; }
+ sleep 1
+done
+
+[ -n "$success" ] || ( sleep 10; xterm ) &
+exec iceweasel http://localhost/

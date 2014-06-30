@@ -1,0 +1,23 @@
+#!/bin/bash
+# Make system modifications for Knoppix: add knoppix user etc.
+#
+# This has to run chroot inside the Knoppix root filesystem!
+#
+[ "`stat --printf '%i' /.`" -gt 2 ] || { echo "$0 must NEVER be run outside of chroot, exiting"'!' ; exit 1; }
+
+umask 022
+
+locale-gen
+if ! grep -q ^knoppix: /etc/passwd; then
+ useradd -u 1000 -d /home/knoppix -c "LINBO" -s /bin/bash knoppix
+ MYGROUPS="users"
+ for i in disk dialout fax voice cdrom floppy tape sudo audio dip backup video plugdev netdev powerdev scanner gnokii fuse partimag debian-tor x2gousers kismet vboxusers; do
+  grep -q "^$i:" /etc/group && MYGROUPS="$MYGROUPS,$i"
+ done
+ usermod -a -G "$MYGROUPS" knoppix
+fi
+[ -d /home/knoppix ] || mkdir -p /home/knoppix
+chown -R knoppix /home/knoppix
+echo Linbo > /etc/hostname
+sed -i 's/\tlocalhost/\tLinbo localhost/g' /etc/hosts
+ln -snf /proc/mounts /etc/mtab

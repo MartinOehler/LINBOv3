@@ -1,0 +1,8 @@
+  {% for bool in clientAdminVisible %}
+		   {{ formset_clientAdmin.management_form }}
+		   {{ formset_clientAdmin.non_form_errors.as_ul }}
+		   <h2>Edit Clients</h2>
+		   {% for form in formset_clientAdmin.forms %}
+		   {{ form }}
+		   {% endfor %}
+		   {% endfor %}

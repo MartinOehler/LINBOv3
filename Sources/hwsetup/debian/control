@@ -1,0 +1,21 @@
+Source: hwsetup
+Section: devel
+Priority: optional
+Maintainer: Klaus Knopper <knoppix@knopper.net>
+Build-Depends: debhelper (>> 3.0.0)
+Standards-Version: 3.5.2
+
+Package: hwsetup
+Architecture: all
+Depends: usleep | usleep-knoppix
+Provides: xorgconfig-knoppix
+Conflicts: xorgconfig-knoppix
+Replaces: xorgconfig-knoppix
+Description: Automatic hardware configuration for KNOPPIX
+ hwsetup is a non-interactive setup tool that reads your
+ hardware confguration and generates informational files in
+ /etc/sysconfig as well as an "optimized" /etc/X11/xorg.conf
+ .
+ This version no longer loads modules by itself, which is now udevs
+ job, and merely speeds up creation of /etc/X11/xorg.conf via
+ mkxorgconfig.

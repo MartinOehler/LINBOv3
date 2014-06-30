@@ -1,0 +1,11 @@
+Source: usleep-knoppix
+Section: knoppix
+Priority: optional
+Maintainer: Klaus Knopper <knoppix@knopper.net>
+Build-Depends: debhelper (>> 3.0.0), dietlibc-dev
+Standards-Version: 3.5.2
+
+Package: usleep-knoppix
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: sleeps for a number of microseconds, see man 3 usleep

@@ -1,0 +1,70 @@
+Source: ntfs-3g
+Section: otherosfs
+Priority: optional
+Maintainer: Klaus Knopper <knoppix@knopper.net>
+Build-Depends:
+ debhelper (>= 9),
+ autotools-dev,
+ chrpath,
+ libfuse-dev,
+ libgcrypt11-dev,
+ libgnutls-dev,
+ pkg-config,
+Standards-Version: 3.9.4
+Homepage: http://www.tuxera.com/community/ntfs-3g-advanced/
+Vcs-Browser: http://daniel-baumann.ch/gitweb/?p=debian/packages/ntfs-3g.git
+Vcs-Git: git://daniel-baumann.ch/git/debian/packages/ntfs-3g.git
+
+Package: ntfs-3g
+Section: otherosfs
+Architecture: linux-any kfreebsd-any
+Pre-Depends:
+ multiarch-support,
+ fuse [linux-any],
+ fuse4bsd [kfreebsd-any],
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Provides: ${ntfs-3g:Provides}
+Description: read/write NTFS driver for FUSE
+ NTFS-3G uses FUSE (Filesystem in Userspace) to provide support for the NTFS
+ filesystem used by Microsoft Windows.
+ This build includes the ntfs-3g internal fuse, and thus allows users to mount
+ NTFS volumes via setuid, without requiring to login as root.
+
+Package: ntfs-3g-dbg
+Section: debug
+Priority: extra
+Architecture: linux-any kfreebsd-any
+Depends:
+ ${misc:Depends},
+ ntfs-3g (= ${binary:Version}),
+ ntfs-3g-dev (= ${binary:Version}),
+Description: read/write NTFS driver for FUSE (debug)
+ NTFS-3G uses FUSE (Filesystem in Userspace) to provide support for the NTFS
+ filesystem used by Microsoft Windows.
+ .
+ This package contains the debugging symbols.
+
+Package: ntfs-3g-dev
+Section: libdevel
+Architecture: linux-any kfreebsd-any
+Depends:
+ ${misc:Depends},
+ ntfs-3g (= ${binary:Version}),
+Description: read/write NTFS driver for FUSE (development)
+ NTFS-3G uses FUSE (Filesystem in Userspace) to provide support for the NTFS
+ filesystem used by Microsoft Windows.
+ .
+ This package contains the development files.
+
+Package: ntfs-3g-udeb
+Package-Type: udeb
+Section: debian-installer
+Architecture: linux-any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ fuse-udeb,
+Provides: ${ntfs-3g-udeb:Provides}
+Description: read/write NTFS driver for FUSE

@@ -1,0 +1,66 @@
+#!/bin/bash
+
+SRC="$1"
+DEST="$2"
+
+case "$2" in
+ *.[Ii][Ss][Oo]) TYPE="CD" ;;
+ *.[Ii][Mm][Gg]) TYPE="USB" ;;
+ *) echo "Usage: $0 Sourcedir file.{img|iso}" >&2 ; exit 1;;
+esac
+
+export PATH="`pwd`/Bin:$PATH"
+
+CDRECORD=cdrecord
+type -a "$CDRECORD" || CDRECORD=wodim
+MKISOFS=mkisofs
+type -a "$MKISOFS" || MKISOFS=genisoimage
+SYSLINUX=syslinux
+
+# Check dependencies
+for i in "$CDRECORD" "$MKISOFS" "$SYSLINUX"; do
+ type -p "$i" >/dev/null 2>&1 || { echo "Missing dependency: $i, exiting!" ; exit 1; }
+done
+
+bailout(){
+ exit $1
+}
+
+SIZE=0
+calc_size(){
+ SIZE="$(du -sm Image/LINBO/LINBO | awk '{print $1}')"
+}
+
+mkchecksum(){
+ echo -n "Checksumming data in LINBO..."
+ ( cd "$SRC" ; rm -f LINBO/{md5sums,sha1sums}; find LINBO -type f -name LINBO\* | sed 's|^\./||' | sort | while read name; do sha1sum -b "$name"; done > LINBO/sha1sums )
+ echo "Done."
+}
+
+mkiso(){
+ local sortlist="/tmp/sort.$$.list"
+ echo "$SRC/boot/isolinux/* 1000005
+$SRC/boot/* 1000004
+$SRC/* 1000003
+$SRC/LINBO/modules/* 1000002
+$SRC/LINBO/* 1000001" > "$sortlist"
+
+ $MKISOFS -input-charset ISO-8859-1 -pad -l -r -J \
+          -V "LINBO" -A "LINBO" -sort "$sortlist" \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+	  -b boot/isolinux/isolinux.bin -c boot/isolinux/boot.cat \
+          -hide-rr-moved \
+          -o "$DEST" "$SRC" || bailout 1
+ rm -f "$sortlist"
+}
+
+# Main
+
+# Fix permissions
+
+if [ "$TYPE" = "CD" ]; then
+  mkchecksum
+  mkiso
+else
+ echo "Unknown type $TYPE." >&2
+fi

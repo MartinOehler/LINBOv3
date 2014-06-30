@@ -1,0 +1,53 @@
+{% for bool in partitionAdminVisible %}
+  {{ formset_partitionAdmin.management_form }}
+  {{ formset_partitionAdmin.non_form_errors.as_ul }}
+  <h2>Edit Partitions</h2>
+  {% for form in formset_partitionAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}
+
+{% for bool in partitionSelectionAdminVisible %}
+  {{ formset_partitionSelectionAdmin.management_form }}
+  {{ formset_partitionSelectionAdmin.non_form_errors.as_ul }}
+  <h2>Edit Partition Selections</h2>
+  {% for form in formset_partitionSelectionAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}
+
+{% for bool in vgAdminVisible %}
+  {{ formset_vgAdmin.management_form }}
+  {{ formset_vgAdmin.non_form_errors.as_ul }}
+  <h2>Edit Volume Groups</h2>
+  {% for form in formset_vgAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}
+
+{% for bool in lvAdminVisible %}
+  {{ formset_lvAdmin.management_form }}
+  {{ formset_lvAdmin.non_form_errors.as_ul }}
+  <h2>Edit logical Volumes</h2>
+  {% for form in formset_lvAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}
+
+{% for bool in osAdminVisible %}
+  {{ formset_osAdmin.management_form }}
+  {{ formset_osAdmin.non_form_errors.as_ul }}
+  <h2>Edit Operating Systems</h2>
+  {% for form in formset_osAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}
+
+{% for bool in vmAdminVisible %}
+  {{ formset_vmAdmin.management_form }}
+  {{ formset_vmAdmin.non_form_errors.as_ul }}
+  <h2>Edit virtual Machines</h2>
+  {% for form in formset_vmAdmin.forms %}
+    {{ form }}
+  {% endfor %}
+{% endfor %}

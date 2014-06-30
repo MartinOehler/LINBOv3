@@ -1,0 +1,21 @@
+#!/bin/bash
+
+STATUSFILE=/var/run/linbo.status
+
+# ANSI-defined Colors
+RED="\033[1;31m"
+BOLD="\033[1m"
+NORMAL="\033[0m"
+
+
+if [ ! -r "$STATUSFILE" ]; then
+ echo -e "${RED}No $STATUSFILE present, nothing to stop.${NORMAL}"
+ exit 0
+fi
+
+tac "$STATUSFILE" | while read daemon statusmsg; do
+ [ -x "$daemon" ] && sudo "$daemon" stop
+done
+
+sudo rm -f "$STATUSFILE"
+echo -e "${BOLD}All services stopped, $STATUSFILE removed.${NORMAL}"

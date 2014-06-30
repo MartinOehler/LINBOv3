@@ -1,0 +1,37 @@
+# /etc/profile: system-wide .profile file for the Bourne shell (sh(1))
+# and Bourne compatible shells (bash(1), ksh(1), ash(1), ...).
+
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games"
+# set PATH so it includes user's private bin if it exists
+if [ -d "$HOME/bin" ] ; then
+   PATH="$HOME/bin:$PATH"
+fi
+
+if [ "$PS1" ]; then
+  if [ "$BASH" ]; then
+    PS1='\u@\h:\w\$ '
+  else
+    if [ "`id -u`" -eq 0 ]; then
+      PS1='# '
+    else
+      PS1='$ '
+    fi
+  fi
+fi
+
+export PATH
+
+alias ..="cd .."
+alias which="type -path"
+alias where="type -all"
+alias ll="ls -l --color=auto"
+alias l="ls -a --color=auto"
+alias rm="rm -i"
+alias mv="mv -i"
+alias cp="cp -i"
+alias la="ls -la --color=auto"
+alias ls="ls --color=auto"
+alias grep="grep --colour=auto"
+# This is very KNOPPIX-specific
+alias su="sudo su"
+umask 022

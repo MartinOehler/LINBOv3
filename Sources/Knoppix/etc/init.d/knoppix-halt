@@ -1,0 +1,228 @@
+#!/bin/busybox sh
+# This script does:
+# - Kill all processes
+# - umount/sync filesystems (and freeing loopback files)
+# - Eventually eject CD-Rom (autoeject turned on)
+
+PATH=/sbin:/bin:/usr/bin:/usr/sbin:/usr/local/sbin:/usr/local/bin
+export PATH
+
+cd /
+
+NORMAL="\033[0;39m"
+RED="\033[1;31m"
+GREEN="\033[1;32m"
+YELLOW="\033[1;33m"
+BLUE="\033[1;34m"
+MAGENTA="\033[1;35m"
+CYAN="\033[1;36m"
+WHITE="\033[1;37m"
+GRAY="\033[1;38m"
+
+[ -r /etc/default/locale ] && . /etc/default/locale
+[ -r /etc/sysconfig/i18n ] && . /etc/sysconfig/i18n
+
+case "$LANG" in
+ de*)
+  EJECTMSG="Bitte CD entfernen, Laufwerk schließen und Eingabetaste drücken [2 Minuten]"
+  COMPLETEMSG="Shutdown beendet."
+  ;;
+   *)
+  EJECTMSG="Please remove CD, close cdrom drive and hit return [2 minutes]."
+  COMPLETEMSG="Shutdown complete."
+  ;;
+esac
+
+# Read in boot parameters
+read CMDLINE </proc/cmdline 2>/dev/null
+
+echo 0 >/proc/sys/kernel/printk
+PROGRESSBAR="/tmp/knoppix-halt.progress"
+progress(){
+ local black="\033[0;0m \033[0m"
+ local p
+ local count=0
+ echo -n -e "\033[1mSystem Shutdown...  \033[42;32m                                                       \033[0m"
+ type usleep >/dev/null 2>&1 && sleep="usleep 100000" || sleep="sleep 1"
+ [ -r "$PROGRESSBAR" ] && rm -f "$PROGRESSBAR" 2>/dev/null
+ touch "$PROGRESSBAR"
+ while [ -r "$PROGRESSBAR" ]; do
+  if [ "$count" -ge 55 ]; then
+   for p in "/" "-" "\\" "|"; do
+    echo -n -e "\b${p}"
+    $sleep
+    [ -r "$PROGRESSBAR" ] || break
+   done
+  else
+   echo -n -e "\b$black\b"
+   $sleep
+  fi
+  let count++
+ done
+ echo -e "\r\033[J\033[1m${COMPLETEMSG}\033[0m"
+}
+
+# Return 0 if there is active swap, but
+# enough memory available to call swapoff, 1 otherwise.
+checkswap(){
+ local free=0 buffers=0 cache=0 swaptotal=0 swapfree=0 info amount kb
+ while read info amount kb; do
+  case "$info" in 
+    MemFree:)   free="$amount";;
+    Buffers:)   buffers="$amount";;
+    Cached:)    cached="$amount";;
+    SwapTotal:) swaptotal="$amount";;
+    SwapFree:)  swapfree="$amount";;
+  esac
+ done </proc/meminfo
+ avail="$((free + buffers + cached))"
+ swapused="$((swaptotal - swapfree))"
+ if [ "$swaptotal" -gt 0 -a "$avail" -gt "$swapused" ] >/dev/null 2>&1; then
+  return 0
+ else
+  return 1
+ fi
+}
+
+OMIT=""
+for i in $(pidof ntfs-3g aufs aufsd fuse fuseblk cloop0 cloop1 cloop2 cloop3 cloop4 cloop5 cloop6 cloop7 klogd syslogd); do OMIT="$OMIT -o $i"; done 2>/dev/null
+killall5 -15 $OMIT; sleep 2
+
+case "$CMDLINE" in *nosound*|*noaudio*|*nostartsound*) true ;; *)
+ # Play sound if soundcard is alive and soundfile present
+ # (also giving running programs some more time to terminate)
+ [ -r /usr/share/sounds/shutdown.ogg -a -f /proc/asound/pcm ] && \
+   type -p ogg123 >/dev/null 2>&1 && \
+    { ogg123 -q --audio-buffers 4096 /usr/share/sounds/shutdown.ogg 2>/dev/null & sleep 2; }
+ ;;
+esac
+
+# Clean console i/o
+exec >/dev/console 2>&1 </dev/console
+stty sane
+echo -n -e "\r\033[K"
+
+# echo -e "\033[H\033[J"
+
+# Start progress bar
+[ -n "$DEBUG" ] || progress &
+
+# Check which device is mounted as /mnt-system
+system="$(awk '/ \/mnt-system /{print $1;exit 0}' /proc/mounts 2>/dev/null)"
+
+# noprompt or noeject option?
+NOPROMPT="yes"; NOEJECT="yes"
+case "$CMDLINE" in
+ *noprompt*) ;;
+ *) # Check if we need to wait for /mnt-system to be ejected.
+  if [ -n "$system" ]; then
+   for cdrom in $(awk '/drive name:/{print $NF}' /proc/sys/dev/cdrom*/info 2>/dev/null); do
+    [ "$system" = "/dev/$cdrom" ] && { NOEJECT=""; NOPROMPT=""; break; }
+   done
+  fi
+ ;;
+esac
+case "$CMDLINE" in *noeject*)  NOEJECT="yes"  ;; esac
+DEBUG=""
+case "$CMDLINE" in *\ debug\ *|*BOOT_IMAGE=debug*) DEBUG="yes" ;; esac
+
+# turn off swap, then unmount file systems.
+# should free ramdisk space first, check
+if checkswap; then
+ swapoff -a >/dev/null 2>&1
+fi
+
+# Shut down network, if no nfs mounted
+# Actually... Not needed.
+# grep -q ' nfs' /proc/mounts || ifdown -a >/dev/null 2>&1
+
+# Kill remaining processes
+killall5 -9 $OMIT
+
+# Turn on autoeject of CD-Roms
+if [ -z "$NOEJECT" ]; then
+ for dev in /proc/sys/dev/cdrom*/lock; do [ -f "$dev" ] && echo 0 > "$dev"; done
+ for dev in /proc/sys/dev/cdrom*/autoeject; do [ -f "$dev" ] && echo 1 > "$dev"; done
+fi
+
+# Try to sync for 30 seconds max.
+sync &
+SYNCPID="$!"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+ sleep 2
+ [ -d /proc/"$SYNCPID" ] || break
+done
+
+# Free modules
+# Do we need to unload modules at all?
+#
+#while read module relax; do
+# case "$module" in
+#  *eeepc*|*_laptop*) true ;; # Unloading eeepc_laptop disables WLAN in the BIOS. Why?
+#  *) rmmod "$module" ;;
+# esac
+#done </proc/modules >/dev/null 2>&1
+
+# Remove all automatically added entries from /etc/fstab
+sed -i -e "/^# Added by KNOPPIX/{N;d}" /etc/fstab
+
+# Force sync, then umount.
+tac /proc/mounts | while read d m f relax; do
+ [ -d "$d" ] || continue
+ case "$f" in tmpfs|proc|sysfs|devpts|usbfs|aufs) ;; *)
+  case "$f" in rootfs|nfs*) ;; *) blockdev --flushbufs "$d" 2>/dev/null; umount -l "$m" 2>/dev/null ;; esac
+  case "$d" in /dev/mapper/*) /sbin/dmsetup --force remove "$d" 2>/dev/null ;; esac
+  ;;
+ esac
+done
+
+# We have to use /bin/umount here, since busybox umount does not accept -t no*
+# /bin/umount -t notmpfs,noproc,nosysfs,nousbfs,norootfs,noaufs,nonfs -adrf 2>/dev/null
+
+# Free loopback devices which may have been used but not mounted.
+for i in /dev/loop* /dev/loop/*; do [ -b "$i" ] && losetup -d "$i" 2>/dev/null; done
+
+# End progress bar
+[ -f "$PROGRESSBAR" ] && { rm -f "$PROGRESSBAR" 2>/dev/null; sleep 1; }
+sleep 1
+echo ""
+
+# Mount boot medium read-only
+umount -r /mnt-system 2>/dev/null
+# And finally, umount
+umount -l /mnt-system 2>/dev/null
+# (Harddisk-installation only): mount / read-only
+umount -r / 2>/dev/null
+
+# Enable sysrq feature (just in case someone has turned it off)
+# echo -n -e '\033[s\033[8m' # No output, save cursor position
+echo 1 > /proc/sys/kernel/sysrq
+echo s > /proc/sysrq-trigger 2>/dev/null & # emergency sync
+sleep 1
+echo u > /proc/sysrq-trigger 2>/dev/null & # emergency remount-ro
+sleep 1
+# echo -n -e '\033[28m\033[u' # re-enable output, restore cursor position
+
+# pre-load poweroff+halt+eject if not included in this shell
+poweroff --help >/dev/null 2>&1
+reboot --help   >/dev/null 2>&1
+eject --help   >/dev/null 2>&1
+
+if [ -z "$NOEJECT" ]; then
+ ( eject -s $system >/dev/null 2>&1 || eject $system >/dev/null 2>&1 & )
+ if [ -z "$NOPROMPT" ]; then
+  echo -n -e "${CYAN}${EJECTMSG}${NORMAL} "
+  read -t 120 a
+ fi
+fi
+
+case "$0" in
+ *halt|*poweroff) { poweroff -f 2>/dev/null & sleep 8; } || echo o > /proc/sysrq-trigger 2>/dev/null ;;
+ *)               { reboot -f   2>/dev/null & sleep 8; } || echo b > /proc/sysrq-trigger 2>/dev/null ;;
+esac
+
+# Should never be reached.
+sleep 2
+echo -n -e "\033[1mYou can now turn off your computer.\033[0m"
+halt -f
+sleep 1337

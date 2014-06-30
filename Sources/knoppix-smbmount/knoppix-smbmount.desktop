@@ -1,0 +1,12 @@
+[Desktop Entry]
+Comment[de]=Netzlaufwerke suchen/mounten
+Comment=Scan/Mount Network Shares
+Exec=/usr/bin/knoppix-smbmount
+Icon=network-workgroup
+Name[de]=Netzlaufwerke suchen/mounten
+Name=Scan/Mount Network Shares
+Type=Application
+Terminal=false
+StartupWMClass=Zenity
+StartupNotify=true
+Categories=System;Settings;Knoppix;
