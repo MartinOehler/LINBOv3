@@ -1184,7 +1184,7 @@ patch_linux(){
   echo "Setze Hostname -> $2."
   echo "$2" | asroot dd of="$1"/etc/hostname 2>/dev/null
  fi
- if [ n "$3" -a -f "$1"/etc/fstab ]; then
+ if [ -n "$3" -a -f "$1"/etc/fstab ]; then
   echo "Setze / partition -> $3 in /etc/fstab."
   patch_fstab "root=$3"
  fi
