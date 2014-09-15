@@ -1339,6 +1339,10 @@ start_vm(){
    VBoxManage --nologo setextradata "$VM_NAME" GUI/ShowMiniToolBar yes
    VBoxManage --nologo setextradata "$VM_NAME" GUI/SaveMountedAtRuntime no
    VBoxManage --nologo setextradata "$VM_NAME" GUI/Fullscreen on
+   # disable snapshots
+   VBoxManage --nologo setextradata "$VM_NAME" GUI/PreventSnapshotOperations yes
+   # do not show machine menu
+   VBoxManage --nologo setextradata "$VM_NAME" GUI/RestrictedRuntimeMenus Machine
    VBoxManage --nologo setextradata global GUI/SuppressMessages "remindAboutAutoCapture,remindAboutWrongColorDepth,remindAboutInputCapture,remindAboutGoingSeamless,confirmInputCapture,remindAboutMouseIntegrationOff,remindAboutMouseIntegrationOn,confirmGoingFullscreen,confirmGoingScale,remindAboutMouseIntegration,warnAboutInaccessibleMedia"
   )
  # Check for bitness
