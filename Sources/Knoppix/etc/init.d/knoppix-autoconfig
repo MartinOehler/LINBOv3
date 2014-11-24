@@ -2,6 +2,7 @@
 # /etc/init.d/knoppix-autoconfig
 # Auto-configuration and setup for Knoppix
 # (C) Klaus Knopper June 2013
+# (C) Bugfixes by Martin Oehler 2014
 # License: GPL V2
 
 export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
@@ -310,6 +311,10 @@ play_startsound(){
 
 start_sound(){
  addtask "snd"; addprogress "Starting sound..."
+ # load mixer device
+ /sbin/modprobe snd_mixer_oss 2>/dev/null
+ # set sound to 60 percent
+ [ -x /usr/bin/aumix ] && /usr/bin/aumix -v 60
  # Just need to delay until sound output (real soundcards) is ready.
  type -p aumix >/dev/null 2>&1 && aumix -L >/dev/tty$LOG_CONSOLE 2>&1
  checkbootparam nostartsound || ( play_startsound & ) >/dev/null 2>&1
