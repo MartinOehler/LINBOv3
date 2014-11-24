@@ -805,7 +805,12 @@ mkgrubmenu(){
   case "$i" in
    vga=*) vga="$i" ;; 
    BOOT_IMAGE=*|server=*|smbdir=*|nfsdir=*|cache=*) true ;;
-   *) append="$append $i" ;;
+   *) case "$append" in
+       *$i*) # do nothing, duplicate options render systems unable to boot
+             # sooner or later
+             ;;
+       *) append="$append $i" ;;
+      esac ;;
   esac
  done
  local kernel="/boot/linux"
